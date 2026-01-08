@@ -12,6 +12,6 @@ with open("holdings.json", "r") as f:
 def get_signals(lang: str = Query("de")):
     """
     API-Endpunkt: /signal
-    - lang="de" für Deutsch, "en" für Englisch
+    lang="de" für Deutsch, "en" für Englisch
     """
     return generate_signals(holdings, lang)
