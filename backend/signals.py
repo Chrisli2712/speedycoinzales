@@ -1,59 +1,38 @@
+# backend/signals.py
+
+import json
 from push import send_push
 
-def score_signal(trend, volatility, btc_stable, relative_strength):
-    score = 0
-
-    if trend == "up":
-        score += 25
-    if volatility == "low":
-        score += 20
-    if btc_stable:
-        score += 20
-    if relative_strength == "high":
-        score += 20
-
-    score += 15  # konservativer Bonus
-    return score
-
-
 def generate_signals(holdings, lang="de"):
+    """
+    Generiert Kauf-/Verkaufssignale basierend auf den aktuellen Holdings.
+    Versendet Push-Benachrichtigungen für starke Signale (Confidence >= 90).
+    Sprache: 'de' oder 'en'
+    """
+
     signals = []
 
-    btc_value = holdings.get("BTC", {}).get("value_eur", 0)
+    # Beispiel für einfache Signal-Logik
+    # Hier kann man später echte Marktanalysen einbauen
+    for asset, info in holdings.items():
+        # Default Action: HOLD
+        action = "HOLD"
+        # Simulierte Logik für neue Assets
+        # (nur Beispiel – hier kann man komplexe Indikatoren einsetzen)
+        if asset in ["IOTA", "SOL"]:
+            action = "BUY"
 
-    # Beispielhafte Marktannahmen (werden später live)
-    market_trend = "up"
-    volatility = "low"
-    btc_stable = True
-
-    # Beste Kandidaten (konservativ)
-    candidates = [
-        {"asset": "BTC", "börse": "Coinbase", "rs": "high"},
-        {"asset": "IOTA", "börse": "Bitunix", "rs": "high"},
-        {"asset": "SOL", "börse": "Coinbase", "rs": "high"},
-    ]
-
-for c in candidates:
-    score = score_signal(
-        market_trend,
-        volatility,
-        btc_stable,
-        c["rs"]
-    )
-
-    if score >= 80:
         signal = {
-            "asset": c["asset"],
-            "börse": c["börse"],
-            "action": "BUY" if c["asset"] != "BTC" else "HOLD",
-            "confidence_score": score,
+            "asset": asset,
+            "börse": info["börse"],
+            "action": action,
+            "confidence_score": 100,  # für Demo auf 100%
             "risk": "konservativ",
-            "suggested_amount_eur": round(btc_value * 0.1, 2)
-            if c["asset"] != "BTC" else None,
+            "suggested_amount_eur": 4.32 if action != "HOLD" else None,
             "reason": "Mehrere Marktindikatoren stimmen überein"
         }
 
-        # 🔔 PUSH NUR BEI 90+ CONFIDENCE UND BUY/SELL
+        # Push nur bei starken Signalen (Confidence >= 90) und BUY/SELL
         if signal["confidence_score"] >= 90 and signal["action"] in ["BUY", "SELL"]:
             send_push(
                 f"{signal['action']} Signal 🚨",
@@ -62,7 +41,4 @@ for c in candidates:
 
         signals.append(signal)
 
-    if lang == "en":
-        return {"signals": signals, "language": "en"}
-
-    return {"signale": signals, "sprache": "de"}
+    return {"signals": signals, "language": lang}
