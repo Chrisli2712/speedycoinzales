@@ -1,3 +1,5 @@
+from push import send_push
+
 def score_signal(trend, volatility, btc_stable, relative_strength):
     score = 0
 
@@ -31,25 +33,34 @@ def generate_signals(holdings, lang="de"):
         {"asset": "SOL", "börse": "Coinbase", "rs": "high"},
     ]
 
-    for c in candidates:
-        score = score_signal(
-            market_trend,
-            volatility,
-            btc_stable,
-            c["rs"]
-        )
+for c in candidates:
+    score = score_signal(
+        market_trend,
+        volatility,
+        btc_stable,
+        c["rs"]
+    )
 
-        if score >= 80:
-            signals.append({
-                "asset": c["asset"],
-                "börse": c["börse"],
-                "action": "BUY" if c["asset"] != "BTC" else "HOLD",
-                "confidence_score": score,
-                "risk": "konservativ",
-                "suggested_amount_eur": round(btc_value * 0.1, 2)
-                if c["asset"] != "BTC" else None,
-                "reason": "Mehrere Marktindikatoren stimmen überein"
-            })
+    if score >= 80:
+        signal = {
+            "asset": c["asset"],
+            "börse": c["börse"],
+            "action": "BUY" if c["asset"] != "BTC" else "HOLD",
+            "confidence_score": score,
+            "risk": "konservativ",
+            "suggested_amount_eur": round(btc_value * 0.1, 2)
+            if c["asset"] != "BTC" else None,
+            "reason": "Mehrere Marktindikatoren stimmen überein"
+        }
+
+        # 🔔 PUSH NUR BEI 90+ CONFIDENCE UND BUY/SELL
+        if signal["confidence_score"] >= 90 and signal["action"] in ["BUY", "SELL"]:
+            send_push(
+                f"{signal['action']} Signal 🚨",
+                f"{signal['asset']} auf {signal['börse']} – Confidence {signal['confidence_score']}%"
+            )
+
+        signals.append(signal)
 
     if lang == "en":
         return {"signals": signals, "language": "en"}
