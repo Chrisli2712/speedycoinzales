@@ -7,15 +7,17 @@ def generate_signals(holdings, lang="de"):
     signals = []
 
     for asset, info in holdings.items():
-        action = "HOLD"
-        if asset in ["IOTA", "SOL"]:
-            action = "BUY"
+        # Wenn du bereits besitzt -> HOLD oder SELL
+        if info["stueck"] > 0:
+            action = "HOLD"  # oder hier Logik für SELL hinzufügen
+        else:
+            action = "BUY"  # neue Assets vorschlagen
 
         signal = {
             "asset": asset,
             "börse": info["börse"],
             "action": action,
-            "confidence_score": 100,
+            "confidence_score": 100,  # Dummy für jetzt
             "risk": "konservativ",
             "suggested_amount_eur": 4.32 if action != "HOLD" else None,
             "reason": "Mehrere Marktindikatoren stimmen überein"
@@ -23,7 +25,7 @@ def generate_signals(holdings, lang="de"):
 
         signals.append(signal)
 
-    # 🔔 Jetzt nur neue Signale pushen
+    # 🔔 Nur neue Signale pushen
     push_new_signals(signals)
 
     return {"signals": signals, "language": lang}
