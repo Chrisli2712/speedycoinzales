@@ -1,6 +1,8 @@
 {
-  "BTC": {"value_eur": 43.17, "börse": "Coinbase"},
-  "LTC": {"value_eur": 217.62, "börse": "Coinbase"},
-  "IOTA": {"value_eur": 207.68, "börse": "Bitunix"},
-  "SOL": {"value_eur": 120.00, "börse": "Coinbase"}
+  "BTC": {"value_eur": 43.17, "börse": "Coinbase", "type": "crypto", "risk": "konservativ"},
+  "LTC": {"value_eur": 217.62, "börse": "Coinbase", "type": "crypto", "risk": "konservativ"},
+  "IOTA": {"value_eur": 207.68, "börse": "Bitunix", "type": "crypto", "risk": "konservativ"},
+  "SOL": {"value_eur": 120.00, "börse": "Coinbase", "type": "crypto", "risk": "konservativ"},
+  "AAPL": {"value_eur": 160.00, "börse": "NASDAQ", "type": "stock", "risk": "konservativ"},
+  "SONY": {"value_eur": 110.00, "börse": "Tokyo", "type": "stock", "risk": "konservativ"}
 }
