@@ -1,43 +1,54 @@
-CANDIDATES = [
-    {"asset": "SOL", "börse": "Coinbase"},
-    {"asset": "LINK", "börse": "Kraken"},
-    {"asset": "NEAR", "börse": "Coinbase"},
-]
+def score_signal(trend, volatility, btc_stable, relative_strength):
+    score = 0
+
+    if trend == "up":
+        score += 25
+    if volatility == "low":
+        score += 20
+    if btc_stable:
+        score += 20
+    if relative_strength == "high":
+        score += 20
+
+    score += 15  # konservativer Bonus
+    return score
+
 
 def generate_signals(holdings, lang="de"):
     signals = []
 
     btc_value = holdings.get("BTC", {}).get("value_eur", 0)
 
-    # 1️⃣ Eigene Holdings
-    for asset, data in holdings.items():
-        action = "HOLD"
-        confidence = "hoch"
-        reason = "Position aktiv, Markt stabil"
+    # Beispielhafte Marktannahmen (werden später live)
+    market_trend = "up"
+    volatility = "low"
+    btc_stable = True
 
-        if asset != "BTC" and btc_value > 0:
-            action = "WATCH"
-            confidence = "mittel"
-            reason = "BTC stabil – Altcoin-Bewegung möglich"
+    # Beste Kandidaten (konservativ)
+    candidates = [
+        {"asset": "BTC", "börse": "Coinbase", "rs": "high"},
+        {"asset": "IOTA", "börse": "Bitunix", "rs": "high"},
+        {"asset": "SOL", "börse": "Coinbase", "rs": "high"},
+    ]
 
-        signals.append({
-            "asset": asset,
-            "börse": data["börse"],
-            "action": action,
-            "confidence": confidence,
-            "reason": reason
-        })
+    for c in candidates:
+        score = score_signal(
+            market_trend,
+            volatility,
+            btc_stable,
+            c["rs"]
+        )
 
-    # 2️⃣ Neue Kaufideen
-    if btc_value > 20:
-        for c in CANDIDATES:
+        if score >= 80:
             signals.append({
                 "asset": c["asset"],
                 "börse": c["börse"],
-                "action": "BUY",
-                "confidence": "hoch",
-                "suggested_amount_eur": round(btc_value * 0.15, 2),
-                "reason": "Kapitalrotation aus BTC in starken Altcoin"
+                "action": "BUY" if c["asset"] != "BTC" else "HOLD",
+                "confidence_score": score,
+                "risk": "konservativ",
+                "suggested_amount_eur": round(btc_value * 0.1, 2)
+                if c["asset"] != "BTC" else None,
+                "reason": "Mehrere Marktindikatoren stimmen überein"
             })
 
     if lang == "en":
