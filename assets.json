@@ -1,0 +1,4 @@
+{
+  "crypto": ["BTC", "ETH", "LTC", "IOTA", "SOL", "ADA"],
+  "stocks": ["AAPL", "TSLA", "AMZN", "BABA", "SONY", "TOYOTA"]
+}
