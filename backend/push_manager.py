@@ -4,26 +4,28 @@ import os
 ONESIGNAL_APP_ID = os.getenv("ONESIGNAL_APP_ID", "bc6352cb-5fb4-4fbb-9e54-066c7e1f57dc")
 ONESIGNAL_REST_KEY = os.getenv("ONESIGNAL_REST_KEY", "hspoh5doauw3f4plelozqtwuu")
 
-def push_new_signals(signals, lang="de"):
-    if not signals:
+def push_new_signals(signals):
+    if not ONESIGNAL_APP_ID or not ONESIGNAL_API_KEY:
         return
 
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Basic {ONESIGNAL_API_KEY}"
-    }
+    for s in signals:
+        if s["action"] != "BUY":
+            continue
 
-    for signal in signals:
-        title = f"Neues Asset: {signal['asset']}" if lang=="de" else f"New Asset: {signal['asset']}"
-        content = f"Aktion: {signal['action']}, empfohlen: {signal['suggested_amount_eur']} €" \
-                  if signal["suggested_amount_eur"] else f"Aktion: {signal['action']}"
-
-        data = {
+        payload = {
             "app_id": ONESIGNAL_APP_ID,
             "included_segments": ["All"],
-            "headings": {"en": title, "de": title},
-            "contents": {"en": content, "de": content}
+            "headings": {"en": f"BUY Signal: {s['asset']}"},
+            "contents": {"en": s["reason"]}
         }
 
-        response = requests.post("https://onesignal.com/api/v1/notifications", headers=headers, json=data)
-        print(response.status_code, response.text)
+        headers = {
+            "Authorization": f"Basic {ONESIGNAL_API_KEY}",
+            "Content-Type": "application/json"
+        }
+
+        requests.post(
+            "https://onesignal.com/api/v1/notifications",
+            json=payload,
+            headers=headers
+        )
