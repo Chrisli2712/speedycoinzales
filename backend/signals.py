@@ -1,34 +1,29 @@
-from .push_manager import push_new_signals
+from .push_manager import send_push
 
 def generate_signals(holdings, lang="de"):
-    """
-    Dummy-Signalgenerator.
-    - HOLT die aktuellen Signale aus holdings
-    - Gibt eine Liste von Kauf/Verkauf/Hold zurück
-    """
     signals = []
 
     for asset, info in holdings.items():
-        # Dummy-Logik: wenn Wert < 100 -> BUY, sonst HOLD
+        # Dummy Logik: < 100 -> BUY, >=100 -> HOLD
         if info["value_eur"] < 100:
             action = "BUY"
-            suggested_amount_eur = 10  # Beispiel
+            suggested_amount_eur = 10
         else:
             action = "HOLD"
             suggested_amount_eur = None
 
-        signals.append({
+        signal = {
             "asset": asset,
             "börse": info["börse"],
             "action": action,
             "confidence_score": 100,
             "risk": "konservativ",
             "suggested_amount_eur": suggested_amount_eur,
-            "reason": "Dummy-Regel: Wert < 100 -> BUY, sonst HOLD"
-        })
+            "reason": "Dummy-Regel: Wert <100 -> BUY, sonst HOLD"
+        }
+        signals.append(signal)
 
-    # Push-Benachrichtigung für BUY/SELL
-    push_new_signals(signals)
+    # Push-Benachrichtigung für neue Signale
+    send_push(signals)
 
-    # API-Ausgabe
     return {"signale": signals, "sprache": lang}
