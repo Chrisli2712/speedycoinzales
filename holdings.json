@@ -1,5 +1,5 @@
-{
-  "BTC": {"value_eur": 43.17, "börse": "Coinbase"},
-  "LTC": {"value_eur": 217.62, "börse": "Coinbase"},
-  "IOTA": {"value_eur": 207.68, "börse": "Bitunix"}
-}
+[
+    {"asset": "BTC", "amount": 1},
+    {"asset": "LTC", "amount": 5},
+    {"asset": "IOTA", "amount": 100}
+]
