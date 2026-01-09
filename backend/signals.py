@@ -1,33 +1,18 @@
-def generate_signals(holdings, language="de"):
+def generate_signals(holdings: dict, lang: str = "de"):
     signals = []
 
-    for h in holdings:
-        asset = h["asset"]
-        exchange = h["exchange"]
-        amount = h["amount"]
-
-        if amount > 0:
-            action = "HOLD"
-            confidence = 90
-            reason = "Stabile Position"
-            suggested_amount = None
-        else:
-            action = "BUY"
-            confidence = 85
-            reason = "Konservatives Kaufsignal"
-            suggested_amount = 5.0
-
+    for asset, data in holdings.items():
         signals.append({
             "asset": asset,
-            "börse": exchange,
-            "action": action,
-            "confidence_score": confidence,
+            "börse": data.get("börse"),
+            "action": "HOLD",
+            "confidence_score": 90,
             "risk": "konservativ",
-            "suggested_amount_eur": suggested_amount,
-            "reason": reason
+            "suggested_amount_eur": None,
+            "reason": "Stabile Position"
         })
 
     return {
         "signale": signals,
-        "sprache": language
+        "sprache": lang
     }
