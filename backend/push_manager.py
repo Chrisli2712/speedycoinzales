@@ -4,34 +4,36 @@ import requests
 ONESIGNAL_APP_ID = os.getenv("ONESIGNAL_APP_ID")
 ONESIGNAL_API_KEY = os.getenv("ONESIGNAL_API_KEY")
 
-
 def push_new_signals(signals):
-    # Falls OneSignal (noch) nicht konfiguriert ist → App soll TROTZDEM laufen
     if not ONESIGNAL_APP_ID or not ONESIGNAL_API_KEY:
-        print("OneSignal ENV vars missing – skipping push")
+        print("⚠️ OneSignal ENV vars missing – push skipped")
         return
 
-    for s in signals:
-        if s.get("action") != "BUY":
-            continue
+    buy_signals = [s for s in signals if s["action"] in ["BUY", "SELL"]]
 
-        payload = {
-            "app_id": ONESIGNAL_APP_ID,
-            "included_segments": ["All"],
-            "headings": {"en": f"BUY Signal: {s['asset']}"},
-            "contents": {"en": s["reason"]},
-        }
+    if not buy_signals:
+        return
 
-        headers = {
-            "Authorization": f"Basic {ONESIGNAL_API_KEY}",
-            "Content-Type": "application/json",
-        }
+    message = "\n".join(
+        f"{s['asset']}: {s['action']} ({s['confidence_score']}%)"
+        for s in buy_signals
+    )
 
-        response = requests.post(
-            "https://onesignal.com/api/v1/notifications",
-            json=payload,
-            headers=headers,
-            timeout=10,
-        )
+    payload = {
+        "app_id": ONESIGNAL_APP_ID,
+        "included_segments": ["All"],
+        "headings": {"en": "Trading Signal Update"},
+        "contents": {"en": message},
+    }
 
-        print("OneSignal status:", response.status_code)
+    headers = {
+        "Authorization": f"Basic {ONESIGNAL_API_KEY}",
+        "Content-Type": "application/json",
+    }
+
+    requests.post(
+        "https://onesignal.com/api/v1/notifications",
+        json=payload,
+        headers=headers,
+        timeout=10,
+    )
