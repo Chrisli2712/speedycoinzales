@@ -1,30 +1,33 @@
-from backend.push_manager import push_new_signals
-
-def generate_signals(holdings: dict, lang: str = "de"):
+def generate_signals(holdings, language="de"):
     signals = []
 
-    for asset, data in holdings.items():
-        signal = {
+    for h in holdings:
+        asset = h["asset"]
+        exchange = h["exchange"]
+        amount = h["amount"]
+
+        if amount > 0:
+            action = "HOLD"
+            confidence = 90
+            reason = "Stabile Position"
+            suggested_amount = None
+        else:
+            action = "BUY"
+            confidence = 85
+            reason = "Konservatives Kaufsignal"
+            suggested_amount = 5.0
+
+        signals.append({
             "asset": asset,
-            "börse": data.get("börse"),
-            "action": "HOLD",
-            "confidence_score": 90,
+            "börse": exchange,
+            "action": action,
+            "confidence_score": confidence,
             "risk": "konservativ",
-            "suggested_amount_eur": None,
-            "reason": "Stabile Position"
-        }
-
-        # einfache Demo-Logik
-        if asset in ["IOTA", "SOL"]:
-            signal["action"] = "BUY"
-            signal["suggested_amount_eur"] = round(data["value_eur"] * 0.02, 2)
-            signal["reason"] = "Konservatives Kaufsignal"
-
-        signals.append(signal)
-
-    push_new_signals(signals)
+            "suggested_amount_eur": suggested_amount,
+            "reason": reason
+        })
 
     return {
         "signale": signals,
-        "sprache": lang
+        "sprache": language
     }
