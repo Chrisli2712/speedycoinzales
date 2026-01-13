@@ -33,9 +33,10 @@ def generate_signals(lang: str = "de") -> Dict:
         },
     ]
 
-    # Push nur bei BUY/SELL und nur bei Änderung
+    # Push versuchen (aber nie crashen)
     try:
-        push_new_signals(signals, lang=lang)
+        ok, detail = push_new_signals(signals, lang=lang)
+        print("Push result:", ok, detail)
     except Exception as e:
         print("⚠️ Push-Fehler ignoriert:", str(e))
 
