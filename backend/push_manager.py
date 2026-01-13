@@ -21,24 +21,57 @@ def _signature(actionable_signals: List[Dict]) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-def push_new_signals(signals: List[Dict], lang: str = "de") -> bool:
+def _post_onesignal(payload: Dict) -> Tuple[bool, str]:
+    """
+    Sendet an OneSignal und bewertet Erfolg korrekt:
+    - HTTP >= 300 => ok False
+    - HTTP 200 aber JSON enthält 'errors' => ok False
+    """
+    if not ONESIGNAL_APP_ID or not ONESIGNAL_API_KEY:
+        return False, "ENV fehlt: ONESIGNAL_APP_ID oder ONESIGNAL_API_KEY"
+
+    headers = {
+        "Authorization": f"Basic {ONESIGNAL_API_KEY}",
+        "Content-Type": "application/json; charset=utf-8",
+    }
+
+    try:
+        r = requests.post(ONESIGNAL_URL, json=payload, headers=headers, timeout=10)
+        text = r.text
+
+        if r.status_code >= 300:
+            return False, f"OneSignal HTTP {r.status_code}: {text}"
+
+        # OneSignal kann HTTP 200 liefern, aber errors im JSON haben
+        try:
+            data = r.json()
+        except Exception:
+            # Wenn kein JSON, trotzdem als ok werten
+            return True, f"OneSignal OK (non-JSON): {text}"
+
+        if isinstance(data, dict) and data.get("errors"):
+            return False, f"OneSignal errors: {data.get('errors')}"
+
+        return True, f"OneSignal OK: {text}"
+
+    except Exception as e:
+        return False, f"Exception: {str(e)}"
+
+
+def push_new_signals(signals: List[Dict], lang: str = "de") -> Tuple[bool, str]:
     """
     Push nur bei BUY/SELL und nur wenn sich etwas geändert hat.
+    Gibt (ok, detail) zurück.
     """
     global _LAST_PUSH_SIGNATURE
 
-    if not ONESIGNAL_APP_ID or not ONESIGNAL_API_KEY:
-        print("⚠️ OneSignal nicht konfiguriert – Push übersprungen")
-        return False
-
     actionable = [s for s in signals if s.get("action") in ("BUY", "SELL")]
     if not actionable:
-        return False
+        return False, "No actionable signals (no BUY/SELL)"
 
     sig = _signature(actionable)
     if _LAST_PUSH_SIGNATURE == sig:
-        print("ℹ️ Keine Änderung – kein Push")
-        return False
+        return False, "No change since last push"
 
     lines = []
     for s in actionable:
@@ -52,54 +85,23 @@ def push_new_signals(signals: List[Dict], lang: str = "de") -> bool:
 
     payload = {
         "app_id": ONESIGNAL_APP_ID,
+        # Für Produktion später eher: ["Subscribed Users"]
         "included_segments": ["All"],
         "headings": {"de": "📊 Trading-Signal Update", "en": "📊 Trading Signal Update"},
         "contents": {"de": message, "en": message},
     }
 
-    headers = {
-        "Authorization": f"Basic {ONESIGNAL_API_KEY}",
-        "Content-Type": "application/json; charset=utf-8",
-    }
-
-    try:
-        r = requests.post(ONESIGNAL_URL, json=payload, headers=headers, timeout=10)
-        if r.status_code >= 300:
-            print("❌ OneSignal Fehler:", r.status_code, r.text)
-            return False
-
+    ok, detail = _post_onesignal(payload)
+    if ok:
         _LAST_PUSH_SIGNATURE = sig
-        print("✅ Push gesendet")
-        return True
-
-    except Exception as e:
-        print("❌ Push Exception:", str(e))
-        return False
+    return ok, detail
 
 
 def send_test_push(message: str = "Test Push von SpeedyCoinZales") -> Tuple[bool, str]:
-    """
-    Test Push mit Debug-Text zurück.
-    """
-    if not ONESIGNAL_APP_ID or not ONESIGNAL_API_KEY:
-        return False, "ENV fehlt: ONESIGNAL_APP_ID oder ONESIGNAL_API_KEY"
-
     payload = {
         "app_id": ONESIGNAL_APP_ID,
         "included_segments": ["All"],
         "headings": {"de": "✅ Test Push", "en": "✅ Test Push"},
         "contents": {"de": message, "en": message},
     }
-
-    headers = {
-        "Authorization": f"Basic {ONESIGNAL_API_KEY}",
-        "Content-Type": "application/json; charset=utf-8",
-    }
-
-    try:
-        r = requests.post(ONESIGNAL_URL, json=payload, headers=headers, timeout=10)
-        if r.status_code >= 300:
-            return False, f"OneSignal HTTP {r.status_code}: {r.text}"
-        return True, f"OneSignal OK: {r.text}"
-    except Exception as e:
-        return False, f"Exception: {str(e)}"
+    return _post_onesignal(payload)
