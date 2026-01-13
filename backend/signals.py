@@ -3,12 +3,6 @@ from .push_manager import push_new_signals
 
 
 def generate_signals(lang: str = "de") -> Dict:
-    """
-    Stabiler MVP:
-    - liefert Signale
-    - sendet Push nur bei BUY/SELL und nur bei Änderungen
-    """
-
     signals: List[Dict] = [
         {
             "asset": "BTC",
@@ -39,7 +33,7 @@ def generate_signals(lang: str = "de") -> Dict:
         },
     ]
 
-    # Push (niemals crashen lassen)
+    # Push nur bei BUY/SELL und nur bei Änderung
     try:
         push_new_signals(signals, lang=lang)
     except Exception as e:
