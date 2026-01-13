@@ -1,14 +1,48 @@
-from backend.push_manager import push_new_signals
+from typing import Dict, List
+from .push_manager import push_new_signals
 
-def generate_signals(holdings, lang="de"):
-    # Beispielhafte Signale
-    signals = [
-        {"asset": "BTC", "börse": "Coinbase", "action": "HOLD", "confidence_score": 90, "risk": "konservativ", "suggested_amount_eur": None, "reason": "Stabile Position"},
-        {"asset": "LTC", "börse": "Coinbase", "action": "HOLD", "confidence_score": 90, "risk": "konservativ", "suggested_amount_eur": None, "reason": "Stabile Position"},
-        {"asset": "IOTA", "börse": "Bitunix", "action": "BUY", "confidence_score": 90, "risk": "konservativ", "suggested_amount_eur": 4.15, "reason": "Konservatives Kaufsignal"}
+
+def generate_signals(lang: str = "de") -> Dict:
+    """
+    Stabiler MVP:
+    - liefert Signale
+    - sendet Push nur bei BUY/SELL und nur bei Änderungen
+    """
+
+    signals: List[Dict] = [
+        {
+            "asset": "BTC",
+            "börse": "Coinbase",
+            "action": "HOLD",
+            "confidence_score": 90,
+            "risk": "konservativ",
+            "suggested_amount_eur": None,
+            "reason": "Stabile Position",
+        },
+        {
+            "asset": "LTC",
+            "börse": "Coinbase",
+            "action": "HOLD",
+            "confidence_score": 90,
+            "risk": "konservativ",
+            "suggested_amount_eur": None,
+            "reason": "Stabile Position",
+        },
+        {
+            "asset": "IOTA",
+            "börse": "Bitunix",
+            "action": "BUY",
+            "confidence_score": 90,
+            "risk": "konservativ",
+            "suggested_amount_eur": 4.15,
+            "reason": "Konservatives Kaufsignal",
+        },
     ]
-    
-    # Push senden
-    push_new_signals(signals)
-    
+
+    # Push (niemals crashen lassen)
+    try:
+        push_new_signals(signals, lang=lang)
+    except Exception as e:
+        print("⚠️ Push-Fehler ignoriert:", str(e))
+
     return {"signale": signals, "sprache": lang}
