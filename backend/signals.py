@@ -33,11 +33,17 @@ def generate_signals(lang: str = "de") -> Dict:
         },
     ]
 
-    # Push versuchen (aber nie crashen)
     try:
-        ok, detail = push_new_signals(signals, lang=lang)
-        print("Push result:", ok, detail)
+        push_ok, push_detail = push_new_signals(signals, lang=lang)
     except Exception as e:
-        print("⚠️ Push-Fehler ignoriert:", str(e))
+        push_ok = False
+        push_detail = f"Push Fehler ignoriert: {str(e)}"
 
-    return {"signale": signals, "sprache": lang}
+    return {
+        "signale": signals,
+        "sprache": lang,
+        "push": {
+            "ok": push_ok,
+            "detail": push_detail
+        }
+    }
