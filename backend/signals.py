@@ -1,6 +1,7 @@
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime, timezone
 import time
+import re
 import requests
 
 from .push_manager import push_new_signals
@@ -85,6 +86,8 @@ NEGATIVE_NEWS_KEYWORDS = [
     "dropped",
     "tumbles",
     "slumps",
+    "bleed",
+    "bleeds",
     "liquidation",
     "liquidations",
     "bankruptcy",
@@ -133,11 +136,17 @@ EXTREME_NEWS_KEYWORDS = [
     "criminal charges",
     "sanctions announced",
     "war escalates",
+    "market crash",
+    "crypto crash",
+    "bitcoin crash",
 ]
 
 POSITIVE_NEWS_KEYWORDS = [
     "rally",
+    "rebounds",
+    "rebound",
     "surge",
+    "surges",
     "jumps",
     "gains",
     "approval",
@@ -152,42 +161,57 @@ POSITIVE_NEWS_KEYWORDS = [
     "upgrade",
 ]
 
-INFLUENCER_KEYWORDS = [
-    "trump",
-    "donald trump",
-    "musk",
-    "elon musk",
-    "putin",
-    "vladimir putin",
-    "fed",
-    "federal reserve",
-    "sec",
-    "blackrock",
-    "binance",
-    "coinbase",
-    "saylor",
-    "microstrategy",
-]
-
-GLOBAL_CRYPTO_TERMS = [
+CRYPTO_MARKET_TERMS = [
     "crypto",
     "cryptocurrency",
     "bitcoin",
+    "btc",
     "ethereum",
+    "eth",
+    "solana",
+    "sol",
+    "cardano",
+    "ada",
+    "xrp",
+    "ripple",
+    "litecoin",
+    "ltc",
+    "iota",
     "stablecoin",
     "exchange",
     "binance",
     "coinbase",
     "etf",
-    "sec",
+    "token",
+    "blockchain",
+]
+
+MACRO_MARKET_TERMS = [
     "fed",
+    "federal reserve",
+    "sec",
+    "cftc",
     "blackrock",
-    "trump",
-    "musk",
-    "putin",
+    "rates",
+    "interest rates",
+    "inflation",
+    "recession",
     "sanctions",
     "war",
+    "tariff",
 ]
+
+INFLUENCER_GROUPS = {
+    "Trump": ["donald trump", "trump"],
+    "Musk": ["elon musk", "musk"],
+    "Putin": ["vladimir putin", "putin"],
+    "Fed": ["federal reserve", "fed"],
+    "SEC": ["sec"],
+    "BlackRock": ["blackrock"],
+    "Binance": ["binance"],
+    "Coinbase": ["coinbase"],
+    "Saylor": ["michael saylor", "saylor", "microstrategy"],
+}
 
 
 def generate_signals(lang: str = "de", mode: str = "konservativ") -> Dict:
@@ -384,7 +408,6 @@ def fetch_news_articles() -> List[Dict]:
         raise Exception(f"GDELT HTTP {response.status_code}: {response.text}")
 
     data = response.json()
-
     articles = data.get("articles", [])
 
     if not isinstance(articles, list):
@@ -467,7 +490,16 @@ def build_live_signals(
             market_cap=market_cap,
         )
 
-        news_risk_score, news_warning, news_summary, news_hits, influencer_mentions = calculate_news_risk(
+        (
+            news_risk_score,
+            news_warning,
+            news_summary,
+            news_hits,
+            influencer_mentions,
+            coin_news_risk_score,
+            global_news_risk_score,
+            influencer_risk_score,
+        ) = calculate_news_risk(
             coin=coin,
             news_articles=news_articles,
         )
@@ -520,6 +552,9 @@ def build_live_signals(
             combined_warning=combined_warning,
             news_summary=news_summary,
             influencer_mentions=influencer_mentions,
+            coin_news_risk_score=coin_news_risk_score,
+            global_news_risk_score=global_news_risk_score,
+            influencer_risk_score=influencer_risk_score,
         )
 
         signals.append(
@@ -537,6 +572,9 @@ def build_live_signals(
                 "change_7d_percent": round(change_7d, 2) if change_7d is not None else None,
                 "crash_risk_score": crash_risk_score,
                 "market_warning": market_warning,
+                "coin_news_risk_score": coin_news_risk_score,
+                "global_news_risk_score": global_news_risk_score,
+                "influencer_risk_score": influencer_risk_score,
                 "news_risk_score": news_risk_score,
                 "news_warning": news_warning,
                 "news_hits": news_hits,
@@ -564,71 +602,193 @@ def build_live_signals(
 def calculate_news_risk(
     coin: Dict,
     news_articles: List[Dict],
-) -> Tuple[int, str, List[str], int, List[str]]:
-    score = 0
+) -> Tuple[int, str, List[str], int, List[str], int, int, int]:
+    coin_news_score = 0
+    global_news_score = 0
+    influencer_score = 0
+
     matched_headlines: List[str] = []
     influencer_mentions: List[str] = []
+    news_hits = 0
 
     coin_terms = [term.lower() for term in coin.get("news_terms", [])]
+    asset = str(coin.get("asset", "")).upper()
 
     for article in news_articles:
-        title = str(article.get("title", ""))
+        title = str(article.get("title", "")).strip()
         title_lower = title.lower()
 
-        coin_specific = any(term in title_lower for term in coin_terms)
-        global_crypto_relevant = any(term in title_lower for term in GLOBAL_CRYPTO_TERMS)
+        coin_specific = text_has_any_term(title_lower, coin_terms)
+        crypto_market_relevant = text_has_any_term(title_lower, CRYPTO_MARKET_TERMS)
+        macro_relevant = text_has_any_term(title_lower, MACRO_MARKET_TERMS)
 
-        if not coin_specific and not global_crypto_relevant:
+        if not coin_specific and not crypto_market_relevant and not macro_relevant:
             continue
 
-        article_score = 0
+        base_risk = calculate_article_risk(title_lower)
+        article_influencers = detect_influencers(title_lower)
+
+        # Politische / Makro-News zählen nur stark, wenn sie auch Markt-/Krypto-Bezug haben.
+        if macro_relevant and not crypto_market_relevant and not coin_specific:
+            if base_risk < 25:
+                continue
+            base_risk = int(base_risk * 0.35)
 
         if coin_specific:
-            article_score += 8
-        else:
-            article_score += 3
+            article_score = 12 + base_risk
 
-        for keyword in EXTREME_NEWS_KEYWORDS:
-            if keyword in title_lower:
-                article_score += 25
+            if article_influencers:
+                article_score += 6
 
-        for keyword in NEGATIVE_NEWS_KEYWORDS:
-            if keyword in title_lower:
-                article_score += 10
-
-        for keyword in INFLUENCER_KEYWORDS:
-            if keyword in title_lower:
-                article_score += 8
-                mention_label = keyword.title()
-
-                if mention_label not in influencer_mentions:
-                    influencer_mentions.append(mention_label)
-
-        for keyword in POSITIVE_NEWS_KEYWORDS:
-            if keyword in title_lower:
-                article_score -= 6
-
-        if coin_specific and article_score > 0:
-            article_score += 5
-
-        if article_score > 0:
-            score += article_score
+            coin_news_score += article_score
+            news_hits += 1
 
             if len(matched_headlines) < 3:
-                matched_headlines.append(title)
+                matched_headlines.append(f"Coin-News: {title}")
 
-    if score > 100:
-        score = 100
+        elif crypto_market_relevant:
+            article_score = 4 + int(base_risk * 0.65)
 
-    if score < 0:
-        score = 0
+            if article_influencers:
+                article_score += 4
 
-    warning = calculate_news_warning(score)
+            global_news_score += article_score
+            news_hits += 1
+
+            if len(matched_headlines) < 3:
+                matched_headlines.append(f"Markt-News: {title}")
+
+        for influencer in article_influencers:
+            if influencer not in influencer_mentions:
+                influencer_mentions.append(influencer)
+
+            if coin_specific:
+                influencer_score += 10
+            elif crypto_market_relevant:
+                influencer_score += 6
+            else:
+                influencer_score += 3
+
+    coin_news_score = clamp_score(coin_news_score)
+    global_news_score = clamp_score(global_news_score)
+    influencer_score = clamp_score(influencer_score)
+
+    effective_global_news_score = apply_global_news_weight(
+        asset=asset,
+        coin_news_score=coin_news_score,
+        global_news_score=global_news_score,
+    )
+
+    news_risk_score = int(
+        coin_news_score * 0.70
+        + effective_global_news_score * 0.35
+        + influencer_score * 0.20
+    )
+
+    # Wenn es keine coin-spezifischen Treffer gibt, darf allgemeine Markt-News
+    # Altcoins nicht automatisch auf "extrem" ziehen.
+    if coin_news_score == 0:
+        if asset in ["BTC", "ETH"]:
+            news_risk_score = min(news_risk_score, 75)
+        else:
+            news_risk_score = min(news_risk_score, 60)
+
+    news_risk_score = clamp_score(news_risk_score)
+    warning = calculate_news_warning(news_risk_score)
 
     if not matched_headlines:
         matched_headlines = ["Keine kritischen News-Treffer im aktuellen Zeitfenster."]
 
-    return int(score), warning, matched_headlines, len(matched_headlines), influencer_mentions
+    return (
+        news_risk_score,
+        warning,
+        matched_headlines,
+        news_hits,
+        influencer_mentions,
+        coin_news_score,
+        global_news_score,
+        influencer_score,
+    )
+
+
+def calculate_article_risk(title_lower: str) -> int:
+    score = 0
+
+    for keyword in EXTREME_NEWS_KEYWORDS:
+        if text_has_term(title_lower, keyword):
+            score += 25
+
+    for keyword in NEGATIVE_NEWS_KEYWORDS:
+        if text_has_term(title_lower, keyword):
+            score += 10
+
+    for keyword in POSITIVE_NEWS_KEYWORDS:
+        if text_has_term(title_lower, keyword):
+            score -= 6
+
+    if score < 0:
+        score = 0
+
+    if score > 70:
+        score = 70
+
+    return int(score)
+
+
+def apply_global_news_weight(
+    asset: str,
+    coin_news_score: int,
+    global_news_score: int,
+) -> int:
+    if asset in ["BTC", "ETH"]:
+        weighted = int(global_news_score * 0.85)
+    elif asset in ["SOL", "XRP"]:
+        weighted = int(global_news_score * 0.60)
+    else:
+        weighted = int(global_news_score * 0.45)
+
+    # Ohne coin-spezifische News wird globale News-Wirkung begrenzt.
+    if coin_news_score == 0:
+        if asset in ["BTC", "ETH"]:
+            weighted = min(weighted, 65)
+        else:
+            weighted = min(weighted, 45)
+
+    return clamp_score(weighted)
+
+
+def detect_influencers(title_lower: str) -> List[str]:
+    found: List[str] = []
+
+    for label, aliases in INFLUENCER_GROUPS.items():
+        for alias in aliases:
+            if text_has_term(title_lower, alias):
+                if label not in found:
+                    found.append(label)
+                break
+
+    return found
+
+
+def text_has_any_term(text: str, terms: List[str]) -> bool:
+    for term in terms:
+        if text_has_term(text, term):
+            return True
+
+    return False
+
+
+def text_has_term(text: str, term: str) -> bool:
+    term = term.lower().strip()
+
+    if not term:
+        return False
+
+    if " " in term:
+        return term in text
+
+    pattern = r"(?<![a-z0-9])" + re.escape(term) + r"(?![a-z0-9])"
+    return re.search(pattern, text) is not None
 
 
 def calculate_news_warning(news_risk_score: int) -> str:
@@ -648,22 +808,16 @@ def calculate_combined_risk(
     crash_risk_score: int,
     news_risk_score: int,
 ) -> int:
-    combined = int((crash_risk_score * 0.65) + (news_risk_score * 0.35))
+    combined = int((crash_risk_score * 0.70) + (news_risk_score * 0.30))
 
     if crash_risk_score >= 70 and news_risk_score >= 70:
-        combined += 15
+        combined += 12
     elif crash_risk_score >= 50 and news_risk_score >= 70:
-        combined += 10
-    elif crash_risk_score >= 70 and news_risk_score >= 45:
         combined += 8
+    elif crash_risk_score >= 70 and news_risk_score >= 45:
+        combined += 6
 
-    if combined > 100:
-        combined = 100
-
-    if combined < 0:
-        combined = 0
-
-    return combined
+    return clamp_score(combined)
 
 
 def calculate_crash_risk(
@@ -730,13 +884,7 @@ def calculate_crash_risk(
         elif market_cap < 5_000_000_000:
             score += 6
 
-    if score < 0:
-        score = 0
-
-    if score > 100:
-        score = 100
-
-    return int(score)
+    return clamp_score(score)
 
 
 def calculate_market_warning(risk_score: int) -> str:
@@ -773,16 +921,16 @@ def calculate_action(
     news_risk_score: int,
     combined_risk_score: int,
 ) -> str:
-    if combined_risk_score >= 80:
+    if combined_risk_score >= 82:
         return "SELL"
 
-    if crash_risk_score >= 75:
+    if crash_risk_score >= 78:
         return "SELL"
 
     if news_risk_score >= 85 and change_24h is not None and change_24h <= 1.0:
         return "SELL"
 
-    if combined_risk_score >= 65 and change_24h is not None and change_24h < 0:
+    if combined_risk_score >= 68 and change_24h is not None and change_24h < 0:
         return "SELL"
 
     if change_24h is None:
@@ -817,13 +965,13 @@ def calculate_confidence(
         if combined_risk_score >= 90:
             return 95
 
-        if combined_risk_score >= 80:
+        if combined_risk_score >= 82:
             return 92
 
-        if combined_risk_score >= 65:
+        if combined_risk_score >= 68:
             return 88
 
-        if crash_risk_score >= 75 or news_risk_score >= 85:
+        if crash_risk_score >= 78 or news_risk_score >= 85:
             return 90
 
         return 80
@@ -945,6 +1093,9 @@ def build_reason(
     combined_warning: str,
     news_summary: List[str],
     influencer_mentions: List[str],
+    coin_news_risk_score: int,
+    global_news_risk_score: int,
+    influencer_risk_score: int,
 ) -> str:
     if action == "SELL":
         signal_text = "Verkaufs-/Warnsignal wegen erhöhtem Gesamt-Risiko."
@@ -954,7 +1105,7 @@ def build_reason(
         signal_text = "Halten/Beobachten, kein starkes Kauf- oder Verkaufssignal."
 
     if influencer_mentions:
-        influencer_text = " Erwähnte Einflussfaktoren: " + ", ".join(influencer_mentions[:5]) + "."
+        influencer_text = " Einflussfaktoren: " + ", ".join(influencer_mentions[:5]) + "."
     else:
         influencer_text = " Keine starken Personen-/Institutionen-Treffer."
 
@@ -964,7 +1115,10 @@ def build_reason(
         f"{signal_text} "
         f"Gesamt-Risiko {combined_risk_score}/100 ({combined_warning}). "
         f"Crash-Risiko {crash_risk_score}/100 ({market_warning}). "
-        f"News-Risiko {news_risk_score}/100 ({news_warning})."
+        f"News-Risiko {news_risk_score}/100 ({news_warning}). "
+        f"Coin-News {coin_news_risk_score}/100, "
+        f"Markt-News {global_news_risk_score}/100, "
+        f"Personen/Institutionen {influencer_risk_score}/100."
         f"{influencer_text} "
         f"News: {news_text} "
         f"Live-Daten: Preis {format_eur(price)}, "
@@ -974,6 +1128,16 @@ def build_reason(
         f"Volumen {format_eur(volume)}, "
         f"Market Cap {format_eur(market_cap)}."
     )
+
+
+def clamp_score(value: int) -> int:
+    if value < 0:
+        return 0
+
+    if value > 100:
+        return 100
+
+    return int(value)
 
 
 def safe_float(value) -> Optional[float]:
