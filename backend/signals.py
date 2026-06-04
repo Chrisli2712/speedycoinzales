@@ -11,13 +11,19 @@ COINPAPRIKA_URL = "https://api.coinpaprika.com/v1/tickers"
 GDELT_DOC_URL = "https://api.gdeltproject.org/api/v2/doc/doc"
 
 MARKET_CACHE_SECONDS = 300
-NEWS_CACHE_SECONDS = 600
+NEWS_CACHE_SECONDS = 900
+
+GDELT_MIN_SECONDS_BETWEEN_REQUESTS = 15
+GDELT_ERROR_COOLDOWN_SECONDS = 120
 
 _MARKET_CACHE_DATA: Optional[List[Dict]] = None
 _MARKET_CACHE_TIME: float = 0.0
 
 _NEWS_CACHE_DATA: Optional[List[Dict]] = None
 _NEWS_CACHE_TIME: float = 0.0
+_NEWS_LAST_REQUEST_TIME: float = 0.0
+_NEWS_LAST_ERROR_TIME: float = 0.0
+_NEWS_LAST_ERROR_MESSAGE: Optional[str] = None
 
 
 COINS = [
@@ -291,6 +297,8 @@ def generate_signals(lang: str = "de", mode: str = "konservativ") -> Dict:
             "news_error": news_error,
             "market_cache_seconds": MARKET_CACHE_SECONDS,
             "news_cache_seconds": NEWS_CACHE_SECONDS,
+            "gdelt_min_seconds_between_requests": GDELT_MIN_SECONDS_BETWEEN_REQUESTS,
+            "gdelt_error_cooldown_seconds": GDELT_ERROR_COOLDOWN_SECONDS,
             "highest_crash_risk_score": highest_crash_risk,
             "highest_news_risk_score": highest_news_risk,
             "highest_combined_risk_score": highest_combined_risk,
@@ -360,9 +368,33 @@ def fetch_live_market_data() -> List[Dict]:
 
 
 def fetch_news_articles_safe() -> Tuple[List[Dict], Optional[str]]:
+    global _NEWS_LAST_ERROR_TIME
+    global _NEWS_LAST_ERROR_MESSAGE
+
+    now = time.time()
+
+    if _NEWS_LAST_ERROR_TIME > 0:
+        seconds_since_error = now - _NEWS_LAST_ERROR_TIME
+
+        if seconds_since_error < GDELT_ERROR_COOLDOWN_SECONDS:
+            if _NEWS_CACHE_DATA is not None:
+                return (
+                    _NEWS_CACHE_DATA,
+                    f"News-Abfrage pausiert nach GDELT-Fehler, Cache genutzt: {_NEWS_LAST_ERROR_MESSAGE}",
+                )
+
+            return (
+                [],
+                f"News-Abfrage pausiert nach GDELT-Fehler: {_NEWS_LAST_ERROR_MESSAGE}",
+            )
+
     try:
-        return fetch_news_articles(), None
+        articles = fetch_news_articles()
+        return articles, None
     except Exception as e:
+        _NEWS_LAST_ERROR_TIME = time.time()
+        _NEWS_LAST_ERROR_MESSAGE = str(e)
+
         if _NEWS_CACHE_DATA is not None:
             return _NEWS_CACHE_DATA, f"News-Fehler, Cache genutzt: {str(e)}"
 
@@ -372,11 +404,24 @@ def fetch_news_articles_safe() -> Tuple[List[Dict], Optional[str]]:
 def fetch_news_articles() -> List[Dict]:
     global _NEWS_CACHE_DATA
     global _NEWS_CACHE_TIME
+    global _NEWS_LAST_REQUEST_TIME
+    global _NEWS_LAST_ERROR_TIME
+    global _NEWS_LAST_ERROR_MESSAGE
 
     now = time.time()
 
     if _NEWS_CACHE_DATA is not None and now - _NEWS_CACHE_TIME < NEWS_CACHE_SECONDS:
         return _NEWS_CACHE_DATA
+
+    seconds_since_last_request = now - _NEWS_LAST_REQUEST_TIME
+
+    if _NEWS_LAST_REQUEST_TIME > 0 and seconds_since_last_request < GDELT_MIN_SECONDS_BETWEEN_REQUESTS:
+        if _NEWS_CACHE_DATA is not None:
+            return _NEWS_CACHE_DATA
+
+        raise Exception(
+            f"GDELT-Abfrage gedrosselt. Noch {int(GDELT_MIN_SECONDS_BETWEEN_REQUESTS - seconds_since_last_request)} Sekunden warten."
+        )
 
     query = (
         '(crypto OR cryptocurrency OR bitcoin OR ethereum OR solana OR cardano OR xrp '
@@ -384,13 +429,15 @@ def fetch_news_articles() -> List[Dict]:
         'OR trump OR musk OR putin OR sanctions OR war OR hack OR lawsuit OR regulation)'
     )
 
+    _NEWS_LAST_REQUEST_TIME = now
+
     response = requests.get(
         GDELT_DOC_URL,
         params={
             "query": query,
             "mode": "artlist",
             "format": "json",
-            "maxrecords": 75,
+            "maxrecords": 50,
             "timespan": "12h",
             "sort": "HybridRel",
         },
@@ -401,11 +448,23 @@ def fetch_news_articles() -> List[Dict]:
         },
     )
 
-    if response.status_code != 200:
+    if response.status_code == 429:
+        _NEWS_LAST_ERROR_TIME = time.time()
+        _NEWS_LAST_ERROR_MESSAGE = f"GDELT HTTP 429: {response.text}"
+
         if _NEWS_CACHE_DATA is not None:
             return _NEWS_CACHE_DATA
 
-        raise Exception(f"GDELT HTTP {response.status_code}: {response.text}")
+        raise Exception(_NEWS_LAST_ERROR_MESSAGE)
+
+    if response.status_code != 200:
+        _NEWS_LAST_ERROR_TIME = time.time()
+        _NEWS_LAST_ERROR_MESSAGE = f"GDELT HTTP {response.status_code}: {response.text}"
+
+        if _NEWS_CACHE_DATA is not None:
+            return _NEWS_CACHE_DATA
+
+        raise Exception(_NEWS_LAST_ERROR_MESSAGE)
 
     data = response.json()
     articles = data.get("articles", [])
@@ -434,7 +493,9 @@ def fetch_news_articles() -> List[Dict]:
         )
 
     _NEWS_CACHE_DATA = cleaned_articles
-    _NEWS_CACHE_TIME = now
+    _NEWS_CACHE_TIME = time.time()
+    _NEWS_LAST_ERROR_TIME = 0.0
+    _NEWS_LAST_ERROR_MESSAGE = None
 
     return cleaned_articles
 
@@ -651,7 +712,6 @@ def calculate_news_risk(
         if base_risk <= 0 and not article_influencers:
             continue
 
-        # Reine Makro-/Politik-News ohne klaren Krypto-Bezug nur schwach zählen.
         if macro_relevant and not crypto_market_relevant and not coin_specific:
             if base_risk < 25:
                 continue
@@ -696,8 +756,6 @@ def calculate_news_risk(
                 }
             )
 
-    # Wichtig:
-    # Dedupe + Begrenzung. Ähnliche Nachrichten werden nicht endlos addiert.
     coin_news_items = sorted(coin_news_items, key=lambda x: x["score"], reverse=True)[:5]
     global_news_items = sorted(global_news_items, key=lambda x: x["score"], reverse=True)[:4]
 
@@ -720,14 +778,12 @@ def calculate_news_risk(
         + influencer_score * 0.16
     )
 
-    # Ohne coin-spezifische News darf allgemeiner Markt-Lärm Altcoins nicht eskalieren.
     if coin_news_score == 0:
         if asset in ["BTC", "ETH"]:
             news_risk_score = min(news_risk_score, 70)
         else:
             news_risk_score = min(news_risk_score, 50)
 
-    # Mit sehr wenigen Treffern nicht sofort extrem.
     total_hits = len(coin_news_items) + len(global_news_items)
 
     if total_hits <= 1:
