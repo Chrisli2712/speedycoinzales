@@ -93,6 +93,14 @@ def generate_signals(lang: str = "de", mode: str = "konservativ") -> Dict:
             push_ok = False
             push_detail = f"Push Fehler ignoriert: {str(e)}"
 
+        highest_crash_risk = 0
+
+        if signals:
+            highest_crash_risk = max(
+                int(signal.get("crash_risk_score", 0))
+                for signal in signals
+            )
+
         return {
             "signale": signals,
             "sprache": lang,
@@ -103,6 +111,8 @@ def generate_signals(lang: str = "de", mode: str = "konservativ") -> Dict:
             "datenquelle": "CoinPaprika Live-Marktdaten",
             "live": True,
             "cache_seconds": CACHE_SECONDS,
+            "highest_crash_risk_score": highest_crash_risk,
+            "market_status": calculate_overall_market_status(highest_crash_risk),
             "letzte_aktualisierung_utc": datetime.now(timezone.utc).isoformat(),
             "push": {
                 "ok": push_ok,
@@ -166,7 +176,6 @@ def fetch_live_market_data() -> List[Dict]:
 
 def build_live_signals(market_data: List[Dict]) -> List[Dict]:
     wanted_symbols = {coin["symbol"]: coin for coin in COINS}
-
     best_by_symbol: Dict[str, Dict] = {}
 
     for item in market_data:
@@ -205,18 +214,46 @@ def build_live_signals(market_data: List[Dict]) -> List[Dict]:
         volume = safe_float(eur.get("volume_24h"))
         market_cap = safe_float(eur.get("market_cap"))
 
-        action = calculate_action(change_24h, change_1h, change_7d)
-        confidence = calculate_confidence(change_24h, change_1h, change_7d, market_cap, volume)
+        crash_risk_score = calculate_crash_risk(
+            change_1h=change_1h,
+            change_24h=change_24h,
+            change_7d=change_7d,
+            volume=volume,
+            market_cap=market_cap,
+        )
+
+        market_warning = calculate_market_warning(crash_risk_score)
+
+        action = calculate_action(
+            change_24h=change_24h,
+            change_1h=change_1h,
+            change_7d=change_7d,
+            crash_risk_score=crash_risk_score,
+        )
+
+        confidence = calculate_confidence(
+            action=action,
+            crash_risk_score=crash_risk_score,
+            change_24h=change_24h,
+            change_1h=change_1h,
+            change_7d=change_7d,
+            market_cap=market_cap,
+            volume=volume,
+        )
+
         risk = calculate_risk(confidence)
-        amount = calculate_suggested_amount(action, confidence)
+        amount = calculate_suggested_amount(action, confidence, crash_risk_score)
 
         reason = build_reason(
+            action=action,
             price=price,
             change_1h=change_1h,
             change_24h=change_24h,
             change_7d=change_7d,
             volume=volume,
             market_cap=market_cap,
+            crash_risk_score=crash_risk_score,
+            market_warning=market_warning,
         )
 
         signals.append(
@@ -232,6 +269,8 @@ def build_live_signals(market_data: List[Dict]) -> List[Dict]:
                 "change_1h_percent": round(change_1h, 2) if change_1h is not None else None,
                 "change_24h_percent": round(change_24h, 2) if change_24h is not None else None,
                 "change_7d_percent": round(change_7d, 2) if change_7d is not None else None,
+                "crash_risk_score": crash_risk_score,
+                "market_warning": market_warning,
             }
         )
 
@@ -239,6 +278,7 @@ def build_live_signals(market_data: List[Dict]) -> List[Dict]:
         signals,
         key=lambda s: (
             action_priority(s.get("action")),
+            -int(s.get("crash_risk_score", 0)),
             -int(s.get("confidence_score", 0)),
         ),
     )
@@ -246,63 +286,210 @@ def build_live_signals(market_data: List[Dict]) -> List[Dict]:
     return sorted_signals
 
 
+def calculate_crash_risk(
+    change_1h: Optional[float],
+    change_24h: Optional[float],
+    change_7d: Optional[float],
+    volume: Optional[float],
+    market_cap: Optional[float],
+) -> int:
+    score = 10
+
+    if change_1h is not None:
+        if change_1h <= -2.0:
+            score += 25
+        elif change_1h <= -1.0:
+            score += 15
+        elif change_1h <= -0.5:
+            score += 8
+
+    if change_24h is not None:
+        if change_24h <= -8.0:
+            score += 40
+        elif change_24h <= -5.0:
+            score += 30
+        elif change_24h <= -3.0:
+            score += 20
+        elif change_24h <= -1.5:
+            score += 10
+
+        if change_24h >= 3.0:
+            score -= 10
+        elif change_24h >= 1.0:
+            score -= 5
+
+    if change_7d is not None:
+        if change_7d <= -25.0:
+            score += 30
+        elif change_7d <= -15.0:
+            score += 20
+        elif change_7d <= -8.0:
+            score += 12
+
+        if change_7d >= 10.0:
+            score -= 8
+        elif change_7d >= 3.0:
+            score -= 4
+
+    volume_ratio = None
+
+    if volume is not None and market_cap is not None and market_cap > 0:
+        volume_ratio = volume / market_cap
+
+    if volume_ratio is not None:
+        if volume_ratio >= 0.35:
+            score += 20
+        elif volume_ratio >= 0.20:
+            score += 12
+        elif volume_ratio >= 0.10:
+            score += 6
+
+    if market_cap is not None:
+        if market_cap < 1_000_000_000:
+            score += 12
+        elif market_cap < 5_000_000_000:
+            score += 6
+
+    if score < 0:
+        score = 0
+
+    if score > 100:
+        score = 100
+
+    return int(score)
+
+
+def calculate_market_warning(crash_risk_score: int) -> str:
+    if crash_risk_score >= 85:
+        return "extrem"
+
+    if crash_risk_score >= 70:
+        return "hoch"
+
+    if crash_risk_score >= 50:
+        return "mittel"
+
+    return "niedrig"
+
+
+def calculate_overall_market_status(highest_crash_risk_score: int) -> str:
+    if highest_crash_risk_score >= 85:
+        return "EXTREME WARNUNG"
+
+    if highest_crash_risk_score >= 70:
+        return "HOHES RISIKO"
+
+    if highest_crash_risk_score >= 50:
+        return "ERHÖHTE VORSICHT"
+
+    return "MARKT RUHIG"
+
+
 def calculate_action(
     change_24h: Optional[float],
     change_1h: Optional[float],
     change_7d: Optional[float],
+    crash_risk_score: int,
 ) -> str:
+    if crash_risk_score >= 75:
+        return "SELL"
+
+    if crash_risk_score >= 60 and change_24h is not None and change_24h < 0:
+        return "SELL"
+
     if change_24h is None:
         return "HOLD"
 
-    short_term_strong = change_1h is not None and change_1h >= 0.8
+    short_term_positive = change_1h is not None and change_1h >= 0.8
     day_positive = change_24h >= 2.5
     week_not_bad = change_7d is None or change_7d > -8.0
+    crash_risk_ok = crash_risk_score < 50
 
-    if day_positive and week_not_bad:
+    if day_positive and week_not_bad and crash_risk_ok:
         return "BUY"
 
-    if short_term_strong and change_24h >= 1.0 and week_not_bad:
+    if short_term_positive and change_24h >= 1.0 and week_not_bad and crash_risk_ok:
         return "BUY"
-
-    if change_24h <= -4.0:
-        return "SELL"
 
     return "HOLD"
 
 
 def calculate_confidence(
+    action: str,
+    crash_risk_score: int,
     change_24h: Optional[float],
     change_1h: Optional[float],
     change_7d: Optional[float],
     market_cap: Optional[float],
     volume: Optional[float],
 ) -> int:
-    score = 70
+    if action == "SELL":
+        if crash_risk_score >= 85:
+            return 95
 
-    if change_24h is not None:
-        abs_change = abs(change_24h)
+        if crash_risk_score >= 75:
+            return 92
 
-        if abs_change >= 5.0:
-            score += 15
-        elif abs_change >= 3.0:
-            score += 10
-        elif abs_change >= 1.5:
+        if crash_risk_score >= 60:
+            return 88
+
+        return 80
+
+    if action == "BUY":
+        score = 75
+
+        if change_24h is not None:
+            if change_24h >= 6.0:
+                score += 12
+            elif change_24h >= 3.0:
+                score += 9
+            elif change_24h >= 1.5:
+                score += 5
+
+        if change_1h is not None and change_1h >= 0.8:
             score += 5
 
-    if change_1h is not None and abs(change_1h) >= 0.8:
+        if change_7d is not None and change_7d > 0:
+            score += 5
+
+        if market_cap is not None and market_cap > 10_000_000_000:
+            score += 5
+
+        if volume is not None and volume > 500_000_000:
+            score += 5
+
+        if crash_risk_score < 30:
+            score += 5
+
+        if score > 95:
+            score = 95
+
+        return int(score)
+
+    score = 70
+
+    if market_cap is not None:
+        if market_cap > 100_000_000_000:
+            score += 15
+        elif market_cap > 10_000_000_000:
+            score += 10
+        elif market_cap > 1_000_000_000:
+            score += 5
+
+    if change_24h is not None and abs(change_24h) < 2.0:
         score += 5
 
-    if change_7d is not None and change_7d > 0:
+    if change_7d is not None and abs(change_7d) < 10.0:
         score += 5
-
-    if market_cap is not None and market_cap > 10_000_000_000:
-        score += 10
 
     if volume is not None and volume > 500_000_000:
         score += 5
 
-    if score > 95:
-        score = 95
+    if crash_risk_score >= 50:
+        score -= 10
+
+    if score > 90:
+        score = 90
 
     if score < 70:
         score = 70
@@ -320,8 +507,15 @@ def calculate_risk(confidence: int) -> str:
     return "aggressiv"
 
 
-def calculate_suggested_amount(action: str, confidence: int) -> Optional[float]:
+def calculate_suggested_amount(
+    action: str,
+    confidence: int,
+    crash_risk_score: int,
+) -> Optional[float]:
     if action != "BUY":
+        return None
+
+    if crash_risk_score >= 50:
         return None
 
     if confidence >= 90:
@@ -334,14 +528,26 @@ def calculate_suggested_amount(action: str, confidence: int) -> Optional[float]:
 
 
 def build_reason(
+    action: str,
     price: Optional[float],
     change_1h: Optional[float],
     change_24h: Optional[float],
     change_7d: Optional[float],
     volume: Optional[float],
     market_cap: Optional[float],
+    crash_risk_score: int,
+    market_warning: str,
 ) -> str:
+    if action == "SELL":
+        signal_text = "Verkaufs-/Warnsignal wegen erhöhtem Crash-Risiko."
+    elif action == "BUY":
+        signal_text = "Kaufsignal bei positivem Momentum und niedrigem Crash-Risiko."
+    else:
+        signal_text = "Halten/Beobachten, kein starkes Kauf- oder Verkaufssignal."
+
     return (
+        f"{signal_text} "
+        f"Crash-Risiko {crash_risk_score}/100 ({market_warning}). "
         f"Live-Daten: Preis {format_eur(price)}, "
         f"1h {format_percent(change_1h)}, "
         f"24h {format_percent(change_24h)}, "
