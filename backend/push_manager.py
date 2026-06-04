@@ -23,8 +23,6 @@ def _risk_bucket(value) -> int:
     if number > 100:
         number = 100
 
-    # Damit nicht bei jeder kleinen Änderung ein neuer Push kommt.
-    # Beispiel: 81 und 84 bleiben beide im 80er-Bereich.
     return int(number / 10) * 10
 
 
@@ -37,6 +35,7 @@ def _build_signature(signals: List[Dict]) -> str:
             f"{s.get('action', '')}|"
             f"{s.get('recommendation_short', '')}|"
             f"{s.get('priority_level', '')}|"
+            f"{s.get('trade_allowed', False)}|"
             f"{_risk_bucket(s.get('combined_risk_score', 0))}|"
             f"{_risk_bucket(s.get('crash_risk_score', 0))}|"
             f"{_risk_bucket(s.get('news_risk_score', 0))}|"
@@ -57,14 +56,8 @@ def _send_to_onesignal(title: str, message: str) -> Tuple[bool, str]:
     payload = {
         "app_id": ONESIGNAL_APP_ID,
         "included_segments": ["All"],
-        "headings": {
-            "de": title,
-            "en": title
-        },
-        "contents": {
-            "de": message,
-            "en": message
-        }
+        "headings": {"de": title, "en": title},
+        "contents": {"de": message, "en": message}
     }
 
     headers = {
@@ -178,9 +171,7 @@ def _build_push_message(signals: List[Dict]) -> str:
         )
     )
 
-    # Push kurz halten: maximal 3 wichtigste Signale.
     top_signals = sorted_signals[:3]
-
     lines = []
 
     for s in top_signals:
@@ -197,7 +188,6 @@ def _build_push_message(signals: List[Dict]) -> str:
 
         change_24h = _format_percent(s.get("change_24h_percent"))
         change_7d = _format_percent(s.get("change_7d_percent"))
-
         amount = _format_amount(s.get("suggested_amount_eur"))
 
         block = (
@@ -227,11 +217,12 @@ def push_new_signals(signals: List[Dict], lang: str = "de") -> Tuple[bool, str]:
     actionable = [
         s for s in signals
         if s.get("action") in ["BUY", "SELL"]
+        and s.get("trade_allowed", False) is True
         and int(s.get("confidence_score", 0)) >= 90
     ]
 
     if not actionable:
-        return False, "Keine BUY/SELL Signale"
+        return False, "Keine erlaubten BUY/SELL Signale"
 
     current_signature = _build_signature(actionable)
 
@@ -241,10 +232,7 @@ def push_new_signals(signals: List[Dict], lang: str = "de") -> Tuple[bool, str]:
     title = _build_push_title(actionable)
     message = _build_push_message(actionable)
 
-    ok, detail = _send_to_onesignal(
-        title=title,
-        message=message
-    )
+    ok, detail = _send_to_onesignal(title=title, message=message)
 
     if ok:
         _LAST_PUSH_SIGNATURE = current_signature
