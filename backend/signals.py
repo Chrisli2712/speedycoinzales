@@ -1,50 +1,54 @@
 from typing import Dict, List, Optional
 from datetime import datetime, timezone
-import os
+import time
 import requests
 
 from .push_manager import push_new_signals
 
 
-COINGECKO_URL = "https://api.coingecko.com/api/v3/coins/markets"
-COINGECKO_API_KEY = os.getenv("COINGECKO_API_KEY")
+COINPAPRIKA_URL = "https://api.coinpaprika.com/v1/tickers"
+
+CACHE_SECONDS = 300
+
+_CACHE_DATA: Optional[List[Dict]] = None
+_CACHE_TIME: float = 0.0
 
 
 COINS = [
     {
-        "id": "bitcoin",
+        "symbol": "BTC",
         "asset": "BTC",
-        "börse": "Coinbase"
+        "börse": "Coinbase",
     },
     {
-        "id": "litecoin",
+        "symbol": "LTC",
         "asset": "LTC",
-        "börse": "Coinbase"
+        "börse": "Coinbase",
     },
     {
-        "id": "iota",
+        "symbol": "IOTA",
         "asset": "IOTA",
-        "börse": "Bitunix"
+        "börse": "Bitunix",
     },
     {
-        "id": "ethereum",
+        "symbol": "ETH",
         "asset": "ETH",
-        "börse": "Coinbase"
+        "börse": "Coinbase",
     },
     {
-        "id": "solana",
+        "symbol": "SOL",
         "asset": "SOL",
-        "börse": "Coinbase"
+        "börse": "Coinbase",
     },
     {
-        "id": "ripple",
+        "symbol": "XRP",
         "asset": "XRP",
-        "börse": "Bitunix"
+        "börse": "Bitunix",
     },
     {
-        "id": "cardano",
+        "symbol": "ADA",
         "asset": "ADA",
-        "börse": "Bitunix"
+        "börse": "Bitunix",
     },
 ]
 
@@ -53,16 +57,16 @@ def generate_signals(lang: str = "de", mode: str = "konservativ") -> Dict:
     mode_settings = {
         "konservativ": {
             "label": "Konservativ",
-            "min_confidence": 90
+            "min_confidence": 90,
         },
         "normal": {
             "label": "Normal",
-            "min_confidence": 80
+            "min_confidence": 80,
         },
         "aggressiv": {
             "label": "Aggressiv",
-            "min_confidence": 70
-        }
+            "min_confidence": 70,
+        },
     }
 
     current_mode = mode_settings.get(mode, mode_settings["konservativ"])
@@ -77,9 +81,6 @@ def generate_signals(lang: str = "de", mode: str = "konservativ") -> Dict:
             if int(signal.get("confidence_score", 0)) >= min_confidence
         ]
 
-        # Wichtig:
-        # Push nur für starke BUY/SELL-Signale.
-        # Dadurch wird nicht bei jeder kleinen Kursbewegung gespammt.
         push_signals = [
             signal for signal in signals
             if signal.get("action") in ["BUY", "SELL"]
@@ -99,13 +100,14 @@ def generate_signals(lang: str = "de", mode: str = "konservativ") -> Dict:
             "modus": current_mode["label"],
             "min_confidence": min_confidence,
             "anzahl_signale": len(signals),
-            "datenquelle": "CoinGecko Live-Marktdaten",
+            "datenquelle": "CoinPaprika Live-Marktdaten",
             "live": True,
+            "cache_seconds": CACHE_SECONDS,
             "letzte_aktualisierung_utc": datetime.now(timezone.utc).isoformat(),
             "push": {
                 "ok": push_ok,
-                "detail": push_detail
-            }
+                "detail": push_detail,
+            },
         }
 
     except Exception as e:
@@ -116,103 +118,120 @@ def generate_signals(lang: str = "de", mode: str = "konservativ") -> Dict:
             "modus": current_mode["label"],
             "min_confidence": min_confidence,
             "anzahl_signale": 0,
-            "datenquelle": "CoinGecko Live-Marktdaten",
+            "datenquelle": "CoinPaprika Live-Marktdaten",
             "live": False,
             "error": f"Live-Daten konnten nicht geladen werden: {str(e)}",
             "push": {
                 "ok": False,
-                "detail": "Kein Push, weil Live-Daten nicht geladen wurden"
-            }
+                "detail": "Kein Push, weil Live-Daten nicht geladen wurden",
+            },
         }
 
 
 def fetch_live_market_data() -> List[Dict]:
-    coin_ids = ",".join([coin["id"] for coin in COINS])
+    global _CACHE_DATA
+    global _CACHE_TIME
 
-    headers = {
-        "Accept": "application/json"
-    }
+    now = time.time()
 
-    # Optional:
-    # Falls du später einen CoinGecko API-Key in Render hinterlegst,
-    # wird er automatisch genutzt.
-    if COINGECKO_API_KEY:
-        headers["x-cg-demo-api-key"] = COINGECKO_API_KEY
-
-    params = {
-        "vs_currency": "eur",
-        "ids": coin_ids,
-        "order": "market_cap_desc",
-        "per_page": 100,
-        "page": 1,
-        "sparkline": "false",
-        "price_change_percentage": "24h"
-    }
+    if _CACHE_DATA is not None and now - _CACHE_TIME < CACHE_SECONDS:
+        return _CACHE_DATA
 
     response = requests.get(
-        COINGECKO_URL,
-        headers=headers,
-        params=params,
-        timeout=10
+        COINPAPRIKA_URL,
+        params={"quotes": "EUR"},
+        timeout=15,
+        headers={
+            "Accept": "application/json",
+            "User-Agent": "SpeedyCoinZales/1.0",
+        },
     )
 
     if response.status_code != 200:
-        raise Exception(f"CoinGecko HTTP {response.status_code}: {response.text}")
+        if _CACHE_DATA is not None:
+            return _CACHE_DATA
+
+        raise Exception(f"CoinPaprika HTTP {response.status_code}: {response.text}")
 
     data = response.json()
 
     if not isinstance(data, list):
-        raise Exception("Unerwartete CoinGecko-Antwort")
+        raise Exception("Unerwartete CoinPaprika-Antwort")
+
+    _CACHE_DATA = data
+    _CACHE_TIME = now
 
     return data
 
 
 def build_live_signals(market_data: List[Dict]) -> List[Dict]:
-    coin_lookup = {
-        coin["id"]: coin for coin in COINS
-    }
+    wanted_symbols = {coin["symbol"]: coin for coin in COINS}
+
+    best_by_symbol: Dict[str, Dict] = {}
+
+    for item in market_data:
+        symbol = str(item.get("symbol", "")).upper()
+
+        if symbol not in wanted_symbols:
+            continue
+
+        rank = item.get("rank")
+
+        if symbol not in best_by_symbol:
+            best_by_symbol[symbol] = item
+            continue
+
+        old_rank = best_by_symbol[symbol].get("rank")
+
+        if safe_int(rank, 999999) < safe_int(old_rank, 999999):
+            best_by_symbol[symbol] = item
 
     signals: List[Dict] = []
 
-    for item in market_data:
-        coin_id = item.get("id")
+    for coin in COINS:
+        symbol = coin["symbol"]
+        item = best_by_symbol.get(symbol)
 
-        if coin_id not in coin_lookup:
+        if item is None:
             continue
 
-        coin_config = coin_lookup[coin_id]
+        quotes = item.get("quotes", {})
+        eur = quotes.get("EUR") or quotes.get("USD") or {}
 
-        asset = coin_config["asset"]
-        boerse = coin_config["börse"]
+        price = safe_float(eur.get("price"))
+        change_24h = safe_float(eur.get("percent_change_24h"))
+        change_1h = safe_float(eur.get("percent_change_1h"))
+        change_7d = safe_float(eur.get("percent_change_7d"))
+        volume = safe_float(eur.get("volume_24h"))
+        market_cap = safe_float(eur.get("market_cap"))
 
-        price = safe_float(item.get("current_price"))
-        change_24h = safe_float(item.get("price_change_percentage_24h"))
-        volume = safe_float(item.get("total_volume"))
-        market_cap = safe_float(item.get("market_cap"))
-
-        action = calculate_action(change_24h)
-        confidence = calculate_confidence(change_24h, market_cap, volume)
+        action = calculate_action(change_24h, change_1h, change_7d)
+        confidence = calculate_confidence(change_24h, change_1h, change_7d, market_cap, volume)
         risk = calculate_risk(confidence)
         amount = calculate_suggested_amount(action, confidence)
 
         reason = build_reason(
             price=price,
+            change_1h=change_1h,
             change_24h=change_24h,
+            change_7d=change_7d,
             volume=volume,
-            market_cap=market_cap
+            market_cap=market_cap,
         )
 
         signals.append(
             {
-                "asset": asset,
-                "börse": boerse,
+                "asset": coin["asset"],
+                "börse": coin["börse"],
                 "action": action,
                 "confidence_score": confidence,
                 "risk": risk,
                 "suggested_amount_eur": amount,
                 "reason": reason,
                 "live_price_eur": round(price, 6) if price is not None else None,
-                "change_24h_percent": round(change_24h, 2) if change_24h is not None else None
+                "change_1h_percent": round(change_1h, 2) if change_1h is not None else None,
+                "change_24h_percent": round(change_24h, 2) if change_24h is not None else None,
+                "change_7d_percent": round(change_7d, 2) if change_7d is not None else None,
             }
         )
 
@@ -220,18 +239,29 @@ def build_live_signals(market_data: List[Dict]) -> List[Dict]:
         signals,
         key=lambda s: (
             action_priority(s.get("action")),
-            -int(s.get("confidence_score", 0))
-        )
+            -int(s.get("confidence_score", 0)),
+        ),
     )
 
     return sorted_signals
 
 
-def calculate_action(change_24h: Optional[float]) -> str:
+def calculate_action(
+    change_24h: Optional[float],
+    change_1h: Optional[float],
+    change_7d: Optional[float],
+) -> str:
     if change_24h is None:
         return "HOLD"
 
-    if change_24h >= 3.0:
+    short_term_strong = change_1h is not None and change_1h >= 0.8
+    day_positive = change_24h >= 2.5
+    week_not_bad = change_7d is None or change_7d > -8.0
+
+    if day_positive and week_not_bad:
+        return "BUY"
+
+    if short_term_strong and change_24h >= 1.0 and week_not_bad:
         return "BUY"
 
     if change_24h <= -4.0:
@@ -242,30 +272,42 @@ def calculate_action(change_24h: Optional[float]) -> str:
 
 def calculate_confidence(
     change_24h: Optional[float],
+    change_1h: Optional[float],
+    change_7d: Optional[float],
     market_cap: Optional[float],
-    volume: Optional[float]
+    volume: Optional[float],
 ) -> int:
-    if change_24h is None:
-        return 70
+    score = 70
 
-    abs_change = abs(change_24h)
+    if change_24h is not None:
+        abs_change = abs(change_24h)
 
-    if abs_change >= 5.0:
-        return 90
+        if abs_change >= 5.0:
+            score += 15
+        elif abs_change >= 3.0:
+            score += 10
+        elif abs_change >= 1.5:
+            score += 5
 
-    if abs_change >= 3.0:
-        return 85
+    if change_1h is not None and abs(change_1h) >= 0.8:
+        score += 5
 
-    if abs_change >= 1.5:
-        return 80
+    if change_7d is not None and change_7d > 0:
+        score += 5
 
     if market_cap is not None and market_cap > 10_000_000_000:
-        return 90
+        score += 10
 
     if volume is not None and volume > 500_000_000:
-        return 80
+        score += 5
 
-    return 70
+    if score > 95:
+        score = 95
+
+    if score < 70:
+        score = 70
+
+    return int(score)
 
 
 def calculate_risk(confidence: int) -> str:
@@ -293,20 +335,19 @@ def calculate_suggested_amount(action: str, confidence: int) -> Optional[float]:
 
 def build_reason(
     price: Optional[float],
+    change_1h: Optional[float],
     change_24h: Optional[float],
+    change_7d: Optional[float],
     volume: Optional[float],
-    market_cap: Optional[float]
+    market_cap: Optional[float],
 ) -> str:
-    price_text = format_eur(price)
-    change_text = format_percent(change_24h)
-    volume_text = format_eur(volume)
-    market_cap_text = format_eur(market_cap)
-
     return (
-        f"Live-Daten: Preis {price_text}, "
-        f"24h-Veränderung {change_text}, "
-        f"Volumen {volume_text}, "
-        f"Market Cap {market_cap_text}."
+        f"Live-Daten: Preis {format_eur(price)}, "
+        f"1h {format_percent(change_1h)}, "
+        f"24h {format_percent(change_24h)}, "
+        f"7d {format_percent(change_7d)}, "
+        f"Volumen {format_eur(volume)}, "
+        f"Market Cap {format_eur(market_cap)}."
     )
 
 
@@ -317,6 +358,15 @@ def safe_float(value) -> Optional[float]:
         return float(value)
     except Exception:
         return None
+
+
+def safe_int(value, default: int) -> int:
+    try:
+        if value is None:
+            return default
+        return int(value)
+    except Exception:
+        return default
 
 
 def format_eur(value: Optional[float]) -> str:
