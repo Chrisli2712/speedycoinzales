@@ -18,14 +18,11 @@ NEWS_CACHE_SECONDS = 900
 GDELT_MIN_SECONDS_BETWEEN_REQUESTS = 15
 GDELT_ERROR_COOLDOWN_SECONDS = 120
 
-# Gebühren-Schutz
 FEE_PERCENT_PER_TRADE = float(os.getenv("FEE_PERCENT_PER_TRADE", "0.60"))
 ROUND_TRIP_FEE_PERCENT = FEE_PERCENT_PER_TRADE * 2
 MIN_PROFIT_BUFFER_PERCENT = float(os.getenv("MIN_PROFIT_BUFFER_PERCENT", "1.00"))
 MIN_PROFIT_NEEDED_PERCENT = ROUND_TRIP_FEE_PERCENT + MIN_PROFIT_BUFFER_PERCENT
 
-# Trefferquote / Signal-Tracking
-# Warnungen kommen sofort. Diese Zeiten sind nur für die spätere Qualitätsmessung.
 EVALUATION_WINDOWS = [
     {"key": "15m", "label": "15 Minuten", "seconds": 15 * 60},
     {"key": "1h", "label": "1 Stunde", "seconds": 60 * 60},
@@ -46,189 +43,56 @@ _NEWS_LAST_ERROR_TIME: float = 0.0
 _NEWS_LAST_ERROR_MESSAGE: Optional[str] = None
 
 _HISTORY_LOADED = False
-_SIGNAL_HISTORY: Dict = {
-    "records": []
-}
+_SIGNAL_HISTORY: Dict = {"records": []}
 
 
 COINS = [
-    {
-        "symbol": "BTC",
-        "asset": "BTC",
-        "name": "Bitcoin",
-        "börse": "Coinbase",
-        "news_terms": ["bitcoin", "btc"],
-    },
-    {
-        "symbol": "LTC",
-        "asset": "LTC",
-        "name": "Litecoin",
-        "börse": "Coinbase",
-        "news_terms": ["litecoin", "ltc"],
-    },
-    {
-        "symbol": "IOTA",
-        "asset": "IOTA",
-        "name": "IOTA",
-        "börse": "Bitunix",
-        "news_terms": ["iota"],
-    },
-    {
-        "symbol": "ETH",
-        "asset": "ETH",
-        "name": "Ethereum",
-        "börse": "Coinbase",
-        "news_terms": ["ethereum", "ether", "eth"],
-    },
-    {
-        "symbol": "SOL",
-        "asset": "SOL",
-        "name": "Solana",
-        "börse": "Coinbase",
-        "news_terms": ["solana", "sol"],
-    },
-    {
-        "symbol": "XRP",
-        "asset": "XRP",
-        "name": "XRP",
-        "börse": "Bitunix",
-        "news_terms": ["xrp", "ripple"],
-    },
-    {
-        "symbol": "ADA",
-        "asset": "ADA",
-        "name": "Cardano",
-        "börse": "Bitunix",
-        "news_terms": ["cardano", "ada"],
-    },
+    {"symbol": "BTC", "asset": "BTC", "name": "Bitcoin", "börse": "Coinbase", "news_terms": ["bitcoin", "btc"]},
+    {"symbol": "LTC", "asset": "LTC", "name": "Litecoin", "börse": "Coinbase", "news_terms": ["litecoin", "ltc"]},
+    {"symbol": "IOTA", "asset": "IOTA", "name": "IOTA", "börse": "Bitunix", "news_terms": ["iota"]},
+    {"symbol": "ETH", "asset": "ETH", "name": "Ethereum", "börse": "Coinbase", "news_terms": ["ethereum", "ether", "eth"]},
+    {"symbol": "SOL", "asset": "SOL", "name": "Solana", "börse": "Coinbase", "news_terms": ["solana", "sol"]},
+    {"symbol": "XRP", "asset": "XRP", "name": "XRP", "börse": "Bitunix", "news_terms": ["xrp", "ripple"]},
+    {"symbol": "ADA", "asset": "ADA", "name": "Cardano", "börse": "Bitunix", "news_terms": ["cardano", "ada"]},
 ]
 
 
 NEGATIVE_NEWS_KEYWORDS = [
-    "crash",
-    "plunge",
-    "collapse",
-    "selloff",
-    "sell-off",
-    "dump",
-    "falls",
-    "fell",
-    "drops",
-    "dropped",
-    "tumbles",
-    "slumps",
-    "bleed",
-    "bleeds",
-    "liquidation",
-    "liquidations",
-    "bankruptcy",
-    "insolvency",
-    "lawsuit",
-    "sues",
-    "sued",
-    "probe",
-    "investigation",
-    "fraud",
-    "scam",
-    "hack",
-    "hacked",
-    "exploit",
-    "breach",
-    "outage",
-    "ban",
-    "banned",
-    "delist",
-    "delisting",
-    "crackdown",
-    "regulation",
-    "regulatory",
-    "sec",
-    "cftc",
-    "sanctions",
-    "war",
-    "missile",
-    "attack",
-    "tariff",
-    "rate hike",
-    "interest rates",
-    "fed warning",
+    "crash", "plunge", "collapse", "selloff", "sell-off", "dump",
+    "falls", "fell", "drops", "dropped", "tumbles", "slumps",
+    "bleed", "bleeds", "liquidation", "liquidations", "bankruptcy",
+    "insolvency", "lawsuit", "sues", "sued", "probe", "investigation",
+    "fraud", "scam", "hack", "hacked", "exploit", "breach", "outage",
+    "ban", "banned", "delist", "delisting", "crackdown", "regulation",
+    "regulatory", "sec", "cftc", "sanctions", "war", "missile",
+    "attack", "tariff", "rate hike", "interest rates", "fed warning",
     "recession",
 ]
 
 EXTREME_NEWS_KEYWORDS = [
-    "exchange collapse",
-    "bank run",
-    "major hack",
-    "massive hack",
-    "sec lawsuit",
-    "trading halted",
-    "withdrawals halted",
-    "bankruptcy filing",
-    "criminal charges",
-    "sanctions announced",
-    "war escalates",
-    "market crash",
-    "crypto crash",
-    "bitcoin crash",
+    "exchange collapse", "bank run", "major hack", "massive hack",
+    "sec lawsuit", "trading halted", "withdrawals halted",
+    "bankruptcy filing", "criminal charges", "sanctions announced",
+    "war escalates", "market crash", "crypto crash", "bitcoin crash",
 ]
 
 POSITIVE_NEWS_KEYWORDS = [
-    "rally",
-    "rebounds",
-    "rebound",
-    "surge",
-    "surges",
-    "jumps",
-    "gains",
-    "approval",
-    "approved",
-    "etf approval",
-    "partnership",
-    "adoption",
-    "inflows",
-    "record inflows",
-    "launches",
-    "integrates",
+    "rally", "rebounds", "rebound", "surge", "surges", "jumps",
+    "gains", "approval", "approved", "etf approval", "partnership",
+    "adoption", "inflows", "record inflows", "launches", "integrates",
     "upgrade",
 ]
 
 CRYPTO_MARKET_TERMS = [
-    "crypto",
-    "cryptocurrency",
-    "bitcoin",
-    "btc",
-    "ethereum",
-    "eth",
-    "solana",
-    "sol",
-    "cardano",
-    "ada",
-    "xrp",
-    "ripple",
-    "litecoin",
-    "ltc",
-    "iota",
-    "stablecoin",
-    "exchange",
-    "binance",
-    "coinbase",
-    "etf",
-    "token",
-    "blockchain",
+    "crypto", "cryptocurrency", "bitcoin", "btc", "ethereum", "eth",
+    "solana", "sol", "cardano", "ada", "xrp", "ripple", "litecoin",
+    "ltc", "iota", "stablecoin", "exchange", "binance", "coinbase",
+    "etf", "token", "blockchain",
 ]
 
 MACRO_MARKET_TERMS = [
-    "fed",
-    "federal reserve",
-    "sec",
-    "cftc",
-    "blackrock",
-    "rates",
-    "interest rates",
-    "inflation",
-    "recession",
-    "sanctions",
-    "war",
+    "fed", "federal reserve", "sec", "cftc", "blackrock", "rates",
+    "interest rates", "inflation", "recession", "sanctions", "war",
     "tariff",
 ]
 
@@ -247,18 +111,9 @@ INFLUENCER_GROUPS = {
 
 def generate_signals(lang: str = "de", mode: str = "konservativ") -> Dict:
     mode_settings = {
-        "konservativ": {
-            "label": "Konservativ",
-            "min_confidence": 90,
-        },
-        "normal": {
-            "label": "Normal",
-            "min_confidence": 80,
-        },
-        "aggressiv": {
-            "label": "Aggressiv",
-            "min_confidence": 70,
-        },
+        "konservativ": {"label": "Konservativ", "min_confidence": 90},
+        "normal": {"label": "Normal", "min_confidence": 80},
+        "aggressiv": {"label": "Aggressiv", "min_confidence": 70},
     }
 
     current_mode = mode_settings.get(mode, mode_settings["konservativ"])
@@ -268,11 +123,7 @@ def generate_signals(lang: str = "de", mode: str = "konservativ") -> Dict:
         market_data = fetch_live_market_data()
         news_articles, news_error = fetch_news_articles_safe()
 
-        all_signals = build_live_signals(
-            market_data=market_data,
-            news_articles=news_articles,
-        )
-
+        all_signals = build_live_signals(market_data=market_data, news_articles=news_articles)
         performance_summary = update_signal_performance(all_signals)
 
         signals = [
@@ -283,6 +134,7 @@ def generate_signals(lang: str = "de", mode: str = "konservativ") -> Dict:
         push_signals = [
             signal for signal in signals
             if signal.get("action") in ["BUY", "SELL"]
+            and signal.get("trade_allowed", False) is True
             and int(signal.get("confidence_score", 0)) >= 90
         ]
 
@@ -292,23 +144,9 @@ def generate_signals(lang: str = "de", mode: str = "konservativ") -> Dict:
             push_ok = False
             push_detail = f"Push Fehler ignoriert: {str(e)}"
 
-        highest_crash_risk = 0
-        highest_news_risk = 0
-        highest_combined_risk = 0
-
-        if signals:
-            highest_crash_risk = max(
-                int(signal.get("crash_risk_score", 0))
-                for signal in signals
-            )
-            highest_news_risk = max(
-                int(signal.get("news_risk_score", 0))
-                for signal in signals
-            )
-            highest_combined_risk = max(
-                int(signal.get("combined_risk_score", 0))
-                for signal in signals
-            )
+        highest_crash_risk = max([int(s.get("crash_risk_score", 0)) for s in signals], default=0)
+        highest_news_risk = max([int(s.get("news_risk_score", 0)) for s in signals], default=0)
+        highest_combined_risk = max([int(s.get("combined_risk_score", 0)) for s in signals], default=0)
 
         return {
             "signale": signals,
@@ -331,7 +169,7 @@ def generate_signals(lang: str = "de", mode: str = "konservativ") -> Dict:
                 "round_trip_fee_percent": round(ROUND_TRIP_FEE_PERCENT, 2),
                 "min_profit_buffer_percent": round(MIN_PROFIT_BUFFER_PERCENT, 2),
                 "min_profit_needed_percent": round(MIN_PROFIT_NEEDED_PERCENT, 2),
-                "explanation": "Kaufen wird nur erlaubt, wenn der erwartete Vorteil größer als Gebühren plus Sicherheitspuffer ist.",
+                "explanation": "Kaufen wird nur erlaubt, wenn der erwartete Vorteil größer als Gebühren plus Sicherheitspuffer ist. Verkaufen wird nur als echtes SELL-Signal erlaubt, wenn News und Kursrisiko zusammenpassen.",
             },
             "performance_summary": performance_summary,
             "trefferquote": performance_summary,
@@ -341,10 +179,7 @@ def generate_signals(lang: str = "de", mode: str = "konservativ") -> Dict:
             "market_status": calculate_overall_market_status(highest_combined_risk),
             "news_articles_checked": len(news_articles),
             "letzte_aktualisierung_utc": datetime.now(timezone.utc).isoformat(),
-            "push": {
-                "ok": push_ok,
-                "detail": push_detail,
-            },
+            "push": {"ok": push_ok, "detail": push_detail},
         }
 
     except Exception as e:
@@ -360,16 +195,12 @@ def generate_signals(lang: str = "de", mode: str = "konservativ") -> Dict:
             "live": False,
             "news_live": False,
             "error": f"Live-Daten konnten nicht geladen werden: {str(e)}",
-            "push": {
-                "ok": False,
-                "detail": "Kein Push, weil Live-Daten nicht geladen wurden",
-            },
+            "push": {"ok": False, "detail": "Kein Push, weil Live-Daten nicht geladen wurden"},
         }
 
 
 def fetch_live_market_data() -> List[Dict]:
-    global _MARKET_CACHE_DATA
-    global _MARKET_CACHE_TIME
+    global _MARKET_CACHE_DATA, _MARKET_CACHE_TIME
 
     now = time.time()
 
@@ -380,16 +211,12 @@ def fetch_live_market_data() -> List[Dict]:
         COINPAPRIKA_URL,
         params={"quotes": "EUR"},
         timeout=15,
-        headers={
-            "Accept": "application/json",
-            "User-Agent": "SpeedyCoinZales/1.0",
-        },
+        headers={"Accept": "application/json", "User-Agent": "SpeedyCoinZales/1.0"},
     )
 
     if response.status_code != 200:
         if _MARKET_CACHE_DATA is not None:
             return _MARKET_CACHE_DATA
-
         raise Exception(f"CoinPaprika HTTP {response.status_code}: {response.text}")
 
     data = response.json()
@@ -404,8 +231,7 @@ def fetch_live_market_data() -> List[Dict]:
 
 
 def fetch_news_articles_safe() -> Tuple[List[Dict], Optional[str]]:
-    global _NEWS_LAST_ERROR_TIME
-    global _NEWS_LAST_ERROR_MESSAGE
+    global _NEWS_LAST_ERROR_TIME, _NEWS_LAST_ERROR_MESSAGE
 
     now = time.time()
 
@@ -438,11 +264,8 @@ def fetch_news_articles_safe() -> Tuple[List[Dict], Optional[str]]:
 
 
 def fetch_news_articles() -> List[Dict]:
-    global _NEWS_CACHE_DATA
-    global _NEWS_CACHE_TIME
-    global _NEWS_LAST_REQUEST_TIME
-    global _NEWS_LAST_ERROR_TIME
-    global _NEWS_LAST_ERROR_MESSAGE
+    global _NEWS_CACHE_DATA, _NEWS_CACHE_TIME, _NEWS_LAST_REQUEST_TIME
+    global _NEWS_LAST_ERROR_TIME, _NEWS_LAST_ERROR_MESSAGE
 
     now = time.time()
 
@@ -478,28 +301,21 @@ def fetch_news_articles() -> List[Dict]:
             "sort": "HybridRel",
         },
         timeout=15,
-        headers={
-            "Accept": "application/json",
-            "User-Agent": "SpeedyCoinZales/1.0",
-        },
+        headers={"Accept": "application/json", "User-Agent": "SpeedyCoinZales/1.0"},
     )
 
     if response.status_code == 429:
         _NEWS_LAST_ERROR_TIME = time.time()
         _NEWS_LAST_ERROR_MESSAGE = f"GDELT HTTP 429: {response.text}"
-
         if _NEWS_CACHE_DATA is not None:
             return _NEWS_CACHE_DATA
-
         raise Exception(_NEWS_LAST_ERROR_MESSAGE)
 
     if response.status_code != 200:
         _NEWS_LAST_ERROR_TIME = time.time()
         _NEWS_LAST_ERROR_MESSAGE = f"GDELT HTTP {response.status_code}: {response.text}"
-
         if _NEWS_CACHE_DATA is not None:
             return _NEWS_CACHE_DATA
-
         raise Exception(_NEWS_LAST_ERROR_MESSAGE)
 
     data = response.json()
@@ -520,12 +336,7 @@ def fetch_news_articles() -> List[Dict]:
             continue
 
         cleaned_articles.append(
-            {
-                "title": title,
-                "url": url,
-                "domain": domain,
-                "seendate": seendate,
-            }
+            {"title": title, "url": url, "domain": domain, "seendate": seendate}
         )
 
     _NEWS_CACHE_DATA = cleaned_articles
@@ -536,10 +347,7 @@ def fetch_news_articles() -> List[Dict]:
     return cleaned_articles
 
 
-def build_live_signals(
-    market_data: List[Dict],
-    news_articles: List[Dict],
-) -> List[Dict]:
+def build_live_signals(market_data: List[Dict], news_articles: List[Dict]) -> List[Dict]:
     wanted_symbols = {coin["symbol"]: coin for coin in COINS}
     best_by_symbol: Dict[str, Dict] = {}
 
@@ -596,10 +404,7 @@ def build_live_signals(
             coin_news_risk_score,
             global_news_risk_score,
             influencer_risk_score,
-        ) = calculate_news_risk(
-            coin=coin,
-            news_articles=news_articles,
-        )
+        ) = calculate_news_risk(coin=coin, news_articles=news_articles)
 
         combined_risk_score = calculate_combined_risk(
             crash_risk_score=crash_risk_score,
@@ -644,6 +449,7 @@ def build_live_signals(
             confidence=raw_confidence,
             combined_risk_score=combined_risk_score,
             crash_risk_score=crash_risk_score,
+            news_risk_score=news_risk_score,
             expected_move_percent=expected_move_percent,
         )
 
@@ -651,6 +457,10 @@ def build_live_signals(
         confidence = raw_confidence
 
         if raw_action == "BUY" and not fee_guard["trade_allowed"]:
+            action = "HOLD"
+            confidence = min(raw_confidence, 85)
+
+        if raw_action == "SELL" and not fee_guard["trade_allowed"]:
             action = "HOLD"
             confidence = min(raw_confidence, 85)
 
@@ -713,7 +523,7 @@ def build_live_signals(
                 "priority_level": recommendation["priority_level"],
                 "priority_text": recommendation["priority_text"],
                 "fee_guard": fee_guard,
-                "trade_allowed": fee_guard["trade_allowed"],
+                "trade_allowed": fee_guard["trade_allowed"] if action in ["BUY", "SELL"] else False,
                 "fee_warning": fee_guard["fee_warning"],
                 "expected_move_percent": fee_guard["expected_move_percent"],
                 "min_profit_needed_percent": fee_guard["min_profit_needed_percent"],
@@ -737,7 +547,7 @@ def build_live_signals(
             }
         )
 
-    sorted_signals = sorted(
+    return sorted(
         signals,
         key=lambda s: (
             int(s.get("priority_level", 9)),
@@ -748,8 +558,6 @@ def build_live_signals(
             -int(s.get("confidence_score", 0)),
         ),
     )
-
-    return sorted_signals
 
 
 def calculate_expected_move_percent(
@@ -775,13 +583,7 @@ def calculate_expected_move_percent(
         expected += max(0, confidence - 75) * 0.12
         expected -= max(0, combined_risk_score - 30) * 0.08
 
-        if expected < 0:
-            expected = 0.0
-
-        if expected > 20:
-            expected = 20.0
-
-        return round(expected, 2)
+        return round(max(0.0, min(expected, 20.0)), 2)
 
     if action == "SELL":
         avoided_loss = 0.0
@@ -798,10 +600,7 @@ def calculate_expected_move_percent(
         if combined_risk_score >= 70:
             avoided_loss += 2.0
 
-        if avoided_loss > 25:
-            avoided_loss = 25.0
-
-        return round(avoided_loss, 2)
+        return round(min(avoided_loss, 25.0), 2)
 
     return 0.0
 
@@ -811,6 +610,7 @@ def calculate_fee_guard(
     confidence: int,
     combined_risk_score: int,
     crash_risk_score: int,
+    news_risk_score: int,
     expected_move_percent: float,
 ) -> Dict:
     if action == "BUY":
@@ -831,62 +631,62 @@ def calculate_fee_guard(
                 f"ist kleiner als Gebühren+Puffer {MIN_PROFIT_NEEDED_PERCENT:.2f}%."
             )
 
-        return {
-            "trade_allowed": trade_allowed,
-            "fee_protected": True,
-            "fee_warning": fee_warning,
-            "fee_percent_per_trade": round(FEE_PERCENT_PER_TRADE, 2),
-            "round_trip_fee_percent": round(ROUND_TRIP_FEE_PERCENT, 2),
-            "min_profit_buffer_percent": round(MIN_PROFIT_BUFFER_PERCENT, 2),
-            "min_profit_needed_percent": round(MIN_PROFIT_NEEDED_PERCENT, 2),
-            "expected_move_percent": round(expected_move_percent, 2),
-            "net_opportunity_percent": round(expected_move_percent - MIN_PROFIT_NEEDED_PERCENT, 2),
-        }
+        return build_fee_result(trade_allowed, fee_warning, expected_move_percent)
 
     if action == "SELL":
-        trade_allowed = crash_risk_score >= 70 or combined_risk_score >= 55
+        market_confirms_sell = (
+            crash_risk_score >= 70
+            or combined_risk_score >= 55
+        )
+
+        news_extreme_but_not_confirmed = (
+            news_risk_score >= 80
+            and crash_risk_score < 70
+            and combined_risk_score < 55
+        )
+
+        trade_allowed = market_confirms_sell and expected_move_percent >= MIN_PROFIT_NEEDED_PERCENT
 
         if trade_allowed:
             fee_warning = (
-                "Verkauf/Warnung erlaubt: Verlustschutz ist wichtiger als Gebühren. "
+                "Verkauf erlaubt: Kursrisiko bestätigt News-/Crash-Warnung. "
                 f"Geschätzte Hin+Zurück-Gebühr: {ROUND_TRIP_FEE_PERCENT:.2f}%."
+            )
+        elif news_extreme_but_not_confirmed:
+            fee_warning = (
+                "Nicht sofort verkaufen: News-Risiko ist hoch, aber Kurs-/Crash-Risiko bestätigt den Verkauf noch nicht. "
+                "Erst beobachten oder manuell prüfen."
             )
         else:
             fee_warning = "Verkauf nicht zwingend: Risiko noch nicht hoch genug, Gebühren beachten."
 
-        return {
-            "trade_allowed": trade_allowed,
-            "fee_protected": True,
-            "fee_warning": fee_warning,
-            "fee_percent_per_trade": round(FEE_PERCENT_PER_TRADE, 2),
-            "round_trip_fee_percent": round(ROUND_TRIP_FEE_PERCENT, 2),
-            "min_profit_buffer_percent": round(MIN_PROFIT_BUFFER_PERCENT, 2),
-            "min_profit_needed_percent": round(MIN_PROFIT_NEEDED_PERCENT, 2),
-            "expected_move_percent": round(expected_move_percent, 2),
-            "net_opportunity_percent": round(expected_move_percent - MIN_PROFIT_NEEDED_PERCENT, 2),
-        }
+        return build_fee_result(trade_allowed, fee_warning, expected_move_percent)
 
+    return build_fee_result(
+        False,
+        "Keine Aktion: Gebühren vermeiden, bis ein klares Signal entsteht.",
+        0.0,
+    )
+
+
+def build_fee_result(trade_allowed: bool, fee_warning: str, expected_move_percent: float) -> Dict:
     return {
-        "trade_allowed": False,
+        "trade_allowed": trade_allowed,
         "fee_protected": True,
-        "fee_warning": "Keine Aktion: Gebühren vermeiden, bis ein klares Signal entsteht.",
+        "fee_warning": fee_warning,
         "fee_percent_per_trade": round(FEE_PERCENT_PER_TRADE, 2),
         "round_trip_fee_percent": round(ROUND_TRIP_FEE_PERCENT, 2),
         "min_profit_buffer_percent": round(MIN_PROFIT_BUFFER_PERCENT, 2),
         "min_profit_needed_percent": round(MIN_PROFIT_NEEDED_PERCENT, 2),
-        "expected_move_percent": 0.0,
-        "net_opportunity_percent": round(-MIN_PROFIT_NEEDED_PERCENT, 2),
+        "expected_move_percent": round(expected_move_percent, 2),
+        "net_opportunity_percent": round(expected_move_percent - MIN_PROFIT_NEEDED_PERCENT, 2),
     }
 
 
-def calculate_news_risk(
-    coin: Dict,
-    news_articles: List[Dict],
-) -> Tuple[int, str, List[str], int, List[str], int, int, int]:
+def calculate_news_risk(coin: Dict, news_articles: List[Dict]) -> Tuple[int, str, List[str], int, List[str], int, int, int]:
     coin_news_items: List[Dict] = []
     global_news_items: List[Dict] = []
     influencer_score = 0
-
     influencer_mentions: List[str] = []
     seen_headlines: List[str] = []
 
@@ -936,38 +736,21 @@ def calculate_news_risk(
 
         if coin_specific:
             score = 12 + base_risk
-
             if article_influencers:
                 score += 5
-
-            coin_news_items.append(
-                {
-                    "score": score,
-                    "title": f"Coin-News: {title}",
-                }
-            )
+            coin_news_items.append({"score": score, "title": f"Coin-News: {title}"})
 
         elif crypto_market_relevant:
             score = 4 + int(base_risk * 0.55)
-
             if article_influencers:
                 score += 3
-
-            global_news_items.append(
-                {
-                    "score": score,
-                    "title": f"Markt-News: {title}",
-                }
-            )
+            global_news_items.append({"score": score, "title": f"Markt-News: {title}"})
 
     coin_news_items = sorted(coin_news_items, key=lambda x: x["score"], reverse=True)[:5]
     global_news_items = sorted(global_news_items, key=lambda x: x["score"], reverse=True)[:4]
 
-    coin_news_score = sum(int(item["score"]) for item in coin_news_items)
-    global_news_score_raw = sum(int(item["score"]) for item in global_news_items)
-
-    coin_news_score = clamp_score(coin_news_score)
-    global_news_score_raw = clamp_score(global_news_score_raw)
+    coin_news_score = clamp_score(sum(int(item["score"]) for item in coin_news_items))
+    global_news_score_raw = clamp_score(sum(int(item["score"]) for item in global_news_items))
     influencer_score = clamp_score(influencer_score)
 
     effective_global_news_score = apply_global_news_weight(
@@ -1000,9 +783,7 @@ def calculate_news_risk(
     news_risk_score = clamp_score(news_risk_score)
     warning = calculate_news_warning(news_risk_score)
 
-    headline_items = coin_news_items + global_news_items
-    headline_items = sorted(headline_items, key=lambda x: x["score"], reverse=True)
-
+    headline_items = sorted(coin_news_items + global_news_items, key=lambda x: x["score"], reverse=True)
     news_summary = [item["title"] for item in headline_items[:3]]
 
     if not news_summary:
@@ -1143,10 +924,7 @@ def ensure_record_evaluations(record: Dict) -> None:
         key = window["key"]
 
         if key not in evaluations:
-            evaluations[key] = {
-                "evaluated": False,
-                "success": None,
-            }
+            evaluations[key] = {"evaluated": False, "success": None}
 
     record["evaluations"] = evaluations
 
@@ -1155,10 +933,7 @@ def build_empty_evaluations() -> Dict:
     result = {}
 
     for window in EVALUATION_WINDOWS:
-        result[window["key"]] = {
-            "evaluated": False,
-            "success": None,
-        }
+        result[window["key"]] = {"evaluated": False, "success": None}
 
     return result
 
@@ -1197,9 +972,7 @@ def build_performance_summary(records: List[Dict]) -> Dict:
 
         for record in records:
             ensure_record_evaluations(record)
-
-            evaluations = record.get("evaluations", {})
-            window_result = evaluations.get(key, {})
+            window_result = record.get("evaluations", {}).get(key, {})
 
             if window_result.get("evaluated"):
                 evaluated.append(record)
@@ -1263,8 +1036,7 @@ def build_performance_summary(records: List[Dict]) -> Dict:
 
 
 def load_signal_history() -> None:
-    global _HISTORY_LOADED
-    global _SIGNAL_HISTORY
+    global _HISTORY_LOADED, _SIGNAL_HISTORY
 
     if _HISTORY_LOADED:
         return
@@ -1305,20 +1077,10 @@ def calculate_article_risk(title_lower: str) -> int:
         if text_has_term(title_lower, keyword):
             score -= 6
 
-    if score < 0:
-        score = 0
-
-    if score > 60:
-        score = 60
-
-    return int(score)
+    return int(max(0, min(score, 60)))
 
 
-def apply_global_news_weight(
-    asset: str,
-    coin_news_score: int,
-    global_news_score: int,
-) -> int:
+def apply_global_news_weight(asset: str, coin_news_score: int, global_news_score: int) -> int:
     if asset in ["BTC", "ETH"]:
         weighted = int(global_news_score * 0.75)
     elif asset in ["SOL", "XRP"]:
@@ -1335,10 +1097,7 @@ def apply_global_news_weight(
     return clamp_score(weighted)
 
 
-def is_duplicate_headline(
-    title: str,
-    seen_titles: List[str],
-) -> bool:
+def is_duplicate_headline(title: str, seen_titles: List[str]) -> bool:
     current_key = normalize_headline(title)
     current_tokens = set(current_key.split())
 
@@ -1375,43 +1134,13 @@ def normalize_headline(title: str) -> str:
     text = re.sub(r"\s+", " ", text).strip()
 
     stop_words = {
-        "the",
-        "a",
-        "an",
-        "and",
-        "or",
-        "to",
-        "of",
-        "in",
-        "on",
-        "for",
-        "with",
-        "after",
-        "near",
-        "over",
-        "under",
-        "from",
-        "as",
-        "is",
-        "are",
-        "was",
-        "were",
-        "be",
-        "been",
-        "will",
-        "by",
-        "at",
-        "it",
-        "its",
-        "this",
-        "that",
+        "the", "a", "an", "and", "or", "to", "of", "in", "on", "for",
+        "with", "after", "near", "over", "under", "from", "as", "is",
+        "are", "was", "were", "be", "been", "will", "by", "at", "it",
+        "its", "this", "that",
     }
 
-    words = [
-        word for word in text.split()
-        if word not in stop_words and len(word) > 1
-    ]
-
+    words = [word for word in text.split() if word not in stop_words and len(word) > 1]
     return " ".join(words)
 
 
@@ -1425,6 +1154,15 @@ def build_recommendation(
     raw_action: str,
 ) -> Dict:
     action_upper = action.upper()
+
+    if raw_action == "SELL" and action_upper == "HOLD" and not fee_guard.get("trade_allowed", False):
+        return {
+            "recommendation": "HALTEN",
+            "badge": "🟡 NEWS-WARNUNG",
+            "short": "NICHT SOFORT VERKAUFEN / PRÜFEN",
+            "priority_level": 5,
+            "priority_text": "News kritisch, Kurs bestätigt Verkauf noch nicht",
+        }
 
     if raw_action == "BUY" and action_upper == "HOLD" and not fee_guard.get("trade_allowed", False):
         return {
@@ -1469,6 +1207,15 @@ def build_recommendation(
             "short": "KAUFEN / KLEINE POSITION",
             "priority_level": 4,
             "priority_text": "Normale Priorität nach Gebühren-Check",
+        }
+
+    if news_risk_score >= 70:
+        return {
+            "recommendation": "HALTEN",
+            "badge": "🟡 NEWS-WARNUNG",
+            "short": "NICHT KAUFEN / MARKT PRÜFEN",
+            "priority_level": 5,
+            "priority_text": "News kritisch, aber kein bestätigter Trade",
         }
 
     if combined_risk_score >= 60:
@@ -1526,20 +1273,14 @@ def text_has_term(text: str, term: str) -> bool:
 def calculate_news_warning(news_risk_score: int) -> str:
     if news_risk_score >= 85:
         return "extrem"
-
     if news_risk_score >= 70:
         return "hoch"
-
     if news_risk_score >= 45:
         return "mittel"
-
     return "niedrig"
 
 
-def calculate_combined_risk(
-    crash_risk_score: int,
-    news_risk_score: int,
-) -> int:
+def calculate_combined_risk(crash_risk_score: int, news_risk_score: int) -> int:
     combined = int((crash_risk_score * 0.72) + (news_risk_score * 0.28))
 
     if crash_risk_score >= 70 and news_risk_score >= 70:
@@ -1622,26 +1363,20 @@ def calculate_crash_risk(
 def calculate_market_warning(risk_score: int) -> str:
     if risk_score >= 85:
         return "extrem"
-
     if risk_score >= 70:
         return "hoch"
-
     if risk_score >= 50:
         return "mittel"
-
     return "niedrig"
 
 
 def calculate_overall_market_status(highest_risk_score: int) -> str:
     if highest_risk_score >= 85:
         return "EXTREME WARNUNG"
-
     if highest_risk_score >= 70:
         return "HOHES RISIKO"
-
     if highest_risk_score >= 50:
         return "ERHÖHTE VORSICHT"
-
     return "MARKT RUHIG"
 
 
@@ -1659,8 +1394,19 @@ def calculate_action(
     if crash_risk_score >= 78:
         return "SELL"
 
-    if news_risk_score >= 85 and change_24h is not None and change_24h <= 1.0:
-        return "SELL"
+    if news_risk_score >= 85:
+        market_confirms_news = (
+            combined_risk_score >= 55
+            or crash_risk_score >= 60
+            or (
+                change_24h is not None
+                and change_24h <= -3.0
+                and (change_1h is None or change_1h <= 0)
+            )
+        )
+
+        if market_confirms_news:
+            return "SELL"
 
     if combined_risk_score >= 68 and change_24h is not None and change_24h < 0:
         return "SELL"
@@ -1696,16 +1442,14 @@ def calculate_confidence(
     if action == "SELL":
         if combined_risk_score >= 90:
             return 95
-
         if combined_risk_score >= 82:
             return 92
-
         if combined_risk_score >= 68:
             return 88
-
-        if crash_risk_score >= 78 or news_risk_score >= 85:
+        if crash_risk_score >= 78:
             return 90
-
+        if news_risk_score >= 85 and combined_risk_score >= 55:
+            return 88
         return 80
 
     if action == "BUY":
@@ -1737,13 +1481,7 @@ def calculate_confidence(
         if news_risk_score >= 45:
             score -= 10
 
-        if score > 95:
-            score = 95
-
-        if score < 70:
-            score = 70
-
-        return int(score)
+        return int(max(70, min(score, 95)))
 
     score = 70
 
@@ -1770,31 +1508,18 @@ def calculate_confidence(
     if news_risk_score >= 70:
         score -= 5
 
-    if score > 90:
-        score = 90
-
-    if score < 70:
-        score = 70
-
-    return int(score)
+    return int(max(70, min(score, 90)))
 
 
 def calculate_risk(confidence: int) -> str:
     if confidence >= 90:
         return "konservativ"
-
     if confidence >= 80:
         return "normal"
-
     return "aggressiv"
 
 
-def calculate_suggested_amount(
-    action: str,
-    confidence: int,
-    combined_risk_score: int,
-    fee_guard: Dict,
-) -> Optional[float]:
+def calculate_suggested_amount(action: str, confidence: int, combined_risk_score: int, fee_guard: Dict) -> Optional[float]:
     if action != "BUY":
         return None
 
@@ -1837,9 +1562,11 @@ def build_reason(
     fee_guard: Dict,
 ) -> str:
     if action == "SELL":
-        signal_text = "Verkaufs-/Warnsignal wegen erhöhtem Gesamt-Risiko."
+        signal_text = "Verkaufs-/Warnsignal wegen bestätigtem Gesamt-Risiko."
     elif action == "BUY":
         signal_text = "Kaufsignal bei positivem Momentum und bestandenem Gebühren-Check."
+    elif raw_action == "SELL" and action == "HOLD":
+        signal_text = "Kein Sofort-Verkauf: News sind kritisch, aber Kurs-/Crash-Risiko bestätigt den Verkauf noch nicht."
     elif raw_action == "BUY" and action == "HOLD":
         signal_text = "Kauf wurde durch Gebühren-Schutz blockiert."
     else:
@@ -1876,10 +1603,8 @@ def build_reason(
 def clamp_score(value: int) -> int:
     if value < 0:
         return 0
-
     if value > 100:
         return 100
-
     return int(value)
 
 
@@ -1928,11 +1653,8 @@ def format_percent(value: Optional[float]) -> str:
 def action_priority(action: str) -> int:
     if action == "SELL":
         return 0
-
     if action == "BUY":
         return 1
-
     if action == "HOLD":
         return 2
-
     return 3
