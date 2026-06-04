@@ -536,6 +536,14 @@ def build_live_signals(
         risk = calculate_risk(confidence)
         amount = calculate_suggested_amount(action, confidence, combined_risk_score)
 
+        recommendation = build_recommendation(
+            action=action,
+            confidence=confidence,
+            combined_risk_score=combined_risk_score,
+            crash_risk_score=crash_risk_score,
+            news_risk_score=news_risk_score,
+        )
+
         reason = build_reason(
             action=action,
             price=price,
@@ -555,6 +563,7 @@ def build_live_signals(
             coin_news_risk_score=coin_news_risk_score,
             global_news_risk_score=global_news_risk_score,
             influencer_risk_score=influencer_risk_score,
+            recommendation=recommendation,
         )
 
         signals.append(
@@ -566,6 +575,11 @@ def build_live_signals(
                 "risk": risk,
                 "suggested_amount_eur": amount,
                 "reason": reason,
+                "recommendation": recommendation["recommendation"],
+                "recommendation_badge": recommendation["badge"],
+                "recommendation_short": recommendation["short"],
+                "priority_level": recommendation["priority_level"],
+                "priority_text": recommendation["priority_text"],
                 "live_price_eur": round(price, 6) if price is not None else None,
                 "change_1h_percent": round(change_1h, 2) if change_1h is not None else None,
                 "change_24h_percent": round(change_24h, 2) if change_24h is not None else None,
@@ -588,6 +602,7 @@ def build_live_signals(
     sorted_signals = sorted(
         signals,
         key=lambda s: (
+            int(s.get("priority_level", 9)),
             action_priority(s.get("action")),
             -int(s.get("combined_risk_score", 0)),
             -int(s.get("crash_risk_score", 0)),
@@ -603,13 +618,12 @@ def calculate_news_risk(
     coin: Dict,
     news_articles: List[Dict],
 ) -> Tuple[int, str, List[str], int, List[str], int, int, int]:
-    coin_news_score = 0
-    global_news_score = 0
+    coin_news_items: List[Dict] = []
+    global_news_items: List[Dict] = []
     influencer_score = 0
 
-    matched_headlines: List[str] = []
     influencer_mentions: List[str] = []
-    news_hits = 0
+    seen_headlines: List[str] = []
 
     coin_terms = [term.lower() for term in coin.get("news_terms", [])]
     asset = str(coin.get("asset", "")).upper()
@@ -617,6 +631,12 @@ def calculate_news_risk(
     for article in news_articles:
         title = str(article.get("title", "")).strip()
         title_lower = title.lower()
+
+        if not title:
+            continue
+
+        if is_duplicate_headline(title, seen_headlines):
+            continue
 
         coin_specific = text_has_any_term(title_lower, coin_terms)
         crypto_market_relevant = text_has_any_term(title_lower, CRYPTO_MARKET_TERMS)
@@ -628,85 +648,114 @@ def calculate_news_risk(
         base_risk = calculate_article_risk(title_lower)
         article_influencers = detect_influencers(title_lower)
 
-        # Politische / Makro-News zählen nur stark, wenn sie auch Markt-/Krypto-Bezug haben.
+        if base_risk <= 0 and not article_influencers:
+            continue
+
+        # Reine Makro-/Politik-News ohne klaren Krypto-Bezug nur schwach zählen.
         if macro_relevant and not crypto_market_relevant and not coin_specific:
             if base_risk < 25:
                 continue
-            base_risk = int(base_risk * 0.35)
+            base_risk = int(base_risk * 0.30)
 
-        if coin_specific:
-            article_score = 12 + base_risk
-
-            if article_influencers:
-                article_score += 6
-
-            coin_news_score += article_score
-            news_hits += 1
-
-            if len(matched_headlines) < 3:
-                matched_headlines.append(f"Coin-News: {title}")
-
-        elif crypto_market_relevant:
-            article_score = 4 + int(base_risk * 0.65)
-
-            if article_influencers:
-                article_score += 4
-
-            global_news_score += article_score
-            news_hits += 1
-
-            if len(matched_headlines) < 3:
-                matched_headlines.append(f"Markt-News: {title}")
+        seen_headlines.append(title)
 
         for influencer in article_influencers:
             if influencer not in influencer_mentions:
                 influencer_mentions.append(influencer)
 
             if coin_specific:
-                influencer_score += 10
+                influencer_score += 8
             elif crypto_market_relevant:
-                influencer_score += 6
+                influencer_score += 5
             else:
-                influencer_score += 3
+                influencer_score += 2
+
+        if coin_specific:
+            score = 12 + base_risk
+
+            if article_influencers:
+                score += 5
+
+            coin_news_items.append(
+                {
+                    "score": score,
+                    "title": f"Coin-News: {title}",
+                }
+            )
+
+        elif crypto_market_relevant:
+            score = 4 + int(base_risk * 0.55)
+
+            if article_influencers:
+                score += 3
+
+            global_news_items.append(
+                {
+                    "score": score,
+                    "title": f"Markt-News: {title}",
+                }
+            )
+
+    # Wichtig:
+    # Dedupe + Begrenzung. Ähnliche Nachrichten werden nicht endlos addiert.
+    coin_news_items = sorted(coin_news_items, key=lambda x: x["score"], reverse=True)[:5]
+    global_news_items = sorted(global_news_items, key=lambda x: x["score"], reverse=True)[:4]
+
+    coin_news_score = sum(int(item["score"]) for item in coin_news_items)
+    global_news_score_raw = sum(int(item["score"]) for item in global_news_items)
 
     coin_news_score = clamp_score(coin_news_score)
-    global_news_score = clamp_score(global_news_score)
+    global_news_score_raw = clamp_score(global_news_score_raw)
     influencer_score = clamp_score(influencer_score)
 
     effective_global_news_score = apply_global_news_weight(
         asset=asset,
         coin_news_score=coin_news_score,
-        global_news_score=global_news_score,
+        global_news_score=global_news_score_raw,
     )
 
     news_risk_score = int(
-        coin_news_score * 0.70
-        + effective_global_news_score * 0.35
-        + influencer_score * 0.20
+        coin_news_score * 0.68
+        + effective_global_news_score * 0.28
+        + influencer_score * 0.16
     )
 
-    # Wenn es keine coin-spezifischen Treffer gibt, darf allgemeine Markt-News
-    # Altcoins nicht automatisch auf "extrem" ziehen.
+    # Ohne coin-spezifische News darf allgemeiner Markt-Lärm Altcoins nicht eskalieren.
     if coin_news_score == 0:
         if asset in ["BTC", "ETH"]:
-            news_risk_score = min(news_risk_score, 75)
+            news_risk_score = min(news_risk_score, 70)
         else:
-            news_risk_score = min(news_risk_score, 60)
+            news_risk_score = min(news_risk_score, 50)
+
+    # Mit sehr wenigen Treffern nicht sofort extrem.
+    total_hits = len(coin_news_items) + len(global_news_items)
+
+    if total_hits <= 1:
+        news_risk_score = min(news_risk_score, 45)
+    elif total_hits <= 2:
+        news_risk_score = min(news_risk_score, 60)
+    elif total_hits <= 4 and coin_news_score < 70:
+        news_risk_score = min(news_risk_score, 72)
 
     news_risk_score = clamp_score(news_risk_score)
     warning = calculate_news_warning(news_risk_score)
 
-    if not matched_headlines:
-        matched_headlines = ["Keine kritischen News-Treffer im aktuellen Zeitfenster."]
+    headline_items = coin_news_items + global_news_items
+    headline_items = sorted(headline_items, key=lambda x: x["score"], reverse=True)
+
+    news_summary = [item["title"] for item in headline_items[:3]]
+
+    if not news_summary:
+        news_summary = ["Keine kritischen News-Treffer im aktuellen Zeitfenster."]
 
     return (
         news_risk_score,
         warning,
-        matched_headlines,
-        news_hits,
+        news_summary,
+        total_hits,
         influencer_mentions,
         coin_news_score,
-        global_news_score,
+        global_news_score_raw,
         influencer_score,
     )
 
@@ -729,8 +778,8 @@ def calculate_article_risk(title_lower: str) -> int:
     if score < 0:
         score = 0
 
-    if score > 70:
-        score = 70
+    if score > 60:
+        score = 60
 
     return int(score)
 
@@ -741,20 +790,162 @@ def apply_global_news_weight(
     global_news_score: int,
 ) -> int:
     if asset in ["BTC", "ETH"]:
-        weighted = int(global_news_score * 0.85)
+        weighted = int(global_news_score * 0.75)
     elif asset in ["SOL", "XRP"]:
-        weighted = int(global_news_score * 0.60)
+        weighted = int(global_news_score * 0.50)
     else:
-        weighted = int(global_news_score * 0.45)
+        weighted = int(global_news_score * 0.35)
 
-    # Ohne coin-spezifische News wird globale News-Wirkung begrenzt.
     if coin_news_score == 0:
         if asset in ["BTC", "ETH"]:
-            weighted = min(weighted, 65)
+            weighted = min(weighted, 55)
         else:
-            weighted = min(weighted, 45)
+            weighted = min(weighted, 35)
 
     return clamp_score(weighted)
+
+
+def is_duplicate_headline(
+    title: str,
+    seen_titles: List[str],
+) -> bool:
+    current_key = normalize_headline(title)
+    current_tokens = set(current_key.split())
+
+    if len(current_tokens) < 3:
+        return False
+
+    for old_title in seen_titles:
+        old_key = normalize_headline(old_title)
+        old_tokens = set(old_key.split())
+
+        if not old_tokens:
+            continue
+
+        if current_key == old_key:
+            return True
+
+        overlap = len(current_tokens.intersection(old_tokens))
+        union = len(current_tokens.union(old_tokens))
+
+        if union == 0:
+            continue
+
+        similarity = overlap / union
+
+        if similarity >= 0.72:
+            return True
+
+    return False
+
+
+def normalize_headline(title: str) -> str:
+    text = title.lower()
+    text = re.sub(r"[^a-z0-9äöüß ]+", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+
+    stop_words = {
+        "the",
+        "a",
+        "an",
+        "and",
+        "or",
+        "to",
+        "of",
+        "in",
+        "on",
+        "for",
+        "with",
+        "after",
+        "near",
+        "over",
+        "under",
+        "from",
+        "as",
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+        "been",
+        "will",
+        "by",
+        "at",
+        "it",
+        "its",
+        "this",
+        "that",
+    }
+
+    words = [
+        word for word in text.split()
+        if word not in stop_words and len(word) > 1
+    ]
+
+    return " ".join(words)
+
+
+def build_recommendation(
+    action: str,
+    confidence: int,
+    combined_risk_score: int,
+    crash_risk_score: int,
+    news_risk_score: int,
+) -> Dict:
+    action_upper = action.upper()
+
+    if action_upper == "SELL":
+        if combined_risk_score >= 85 or crash_risk_score >= 85 or news_risk_score >= 85:
+            return {
+                "recommendation": "VERKAUFEN",
+                "badge": "🚨 SOFORT PRÜFEN",
+                "short": "VERKAUFEN / RISIKO EXTREM",
+                "priority_level": 1,
+                "priority_text": "Sehr hohe Priorität",
+            }
+
+        return {
+            "recommendation": "VERKAUFEN",
+            "badge": "⚠️ RISIKO HOCH",
+            "short": "VERKAUFEN / ABSICHERN",
+            "priority_level": 2,
+            "priority_text": "Hohe Priorität",
+        }
+
+    if action_upper == "BUY":
+        if confidence >= 90 and combined_risk_score < 40:
+            return {
+                "recommendation": "KAUFEN",
+                "badge": "🟢 KAUFCHANCE",
+                "short": "KAUFEN / STARKES SIGNAL",
+                "priority_level": 3,
+                "priority_text": "Kaufchance",
+            }
+
+        return {
+            "recommendation": "KAUFEN",
+            "badge": "🟢 KLEIN KAUFEN",
+            "short": "KAUFEN / KLEINE POSITION",
+            "priority_level": 4,
+            "priority_text": "Normale Priorität",
+        }
+
+    if combined_risk_score >= 60:
+        return {
+            "recommendation": "HALTEN",
+            "badge": "🟡 BEOBACHTEN",
+            "short": "HALTEN / RISIKO BEOBACHTEN",
+            "priority_level": 5,
+            "priority_text": "Beobachten",
+        }
+
+    return {
+        "recommendation": "HALTEN",
+        "badge": "🔵 RUHIG",
+        "short": "HALTEN / KEINE AKTION",
+        "priority_level": 6,
+        "priority_text": "Niedrige Priorität",
+    }
 
 
 def detect_influencers(title_lower: str) -> List[str]:
@@ -808,14 +999,14 @@ def calculate_combined_risk(
     crash_risk_score: int,
     news_risk_score: int,
 ) -> int:
-    combined = int((crash_risk_score * 0.70) + (news_risk_score * 0.30))
+    combined = int((crash_risk_score * 0.72) + (news_risk_score * 0.28))
 
     if crash_risk_score >= 70 and news_risk_score >= 70:
-        combined += 12
+        combined += 10
     elif crash_risk_score >= 50 and news_risk_score >= 70:
-        combined += 8
-    elif crash_risk_score >= 70 and news_risk_score >= 45:
         combined += 6
+    elif crash_risk_score >= 70 and news_risk_score >= 45:
+        combined += 5
 
     return clamp_score(combined)
 
@@ -1096,6 +1287,7 @@ def build_reason(
     coin_news_risk_score: int,
     global_news_risk_score: int,
     influencer_risk_score: int,
+    recommendation: Dict,
 ) -> str:
     if action == "SELL":
         signal_text = "Verkaufs-/Warnsignal wegen erhöhtem Gesamt-Risiko."
@@ -1112,6 +1304,7 @@ def build_reason(
     news_text = " ".join(news_summary[:2])
 
     return (
+        f"{recommendation['badge']} — {recommendation['short']}. "
         f"{signal_text} "
         f"Gesamt-Risiko {combined_risk_score}/100 ({combined_warning}). "
         f"Crash-Risiko {crash_risk_score}/100 ({market_warning}). "
