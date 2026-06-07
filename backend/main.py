@@ -1,7 +1,9 @@
 from fastapi import FastAPI, Query, HTTPException
 from .signals import generate_signals
 from .push_manager import send_test_push
+from .portfolio_manager import get_portfolio_snapshot
 import os
+
 
 app = FastAPI(title="SpeedyCoinZales API")
 
@@ -13,7 +15,7 @@ def root():
     return {
         "status": "ok",
         "app": "SpeedyCoinZales",
-        "version": "1.0"
+        "version": "1.1"
     }
 
 
@@ -34,6 +36,14 @@ def get_signals(
         lang=lang,
         mode=mode
     )
+
+
+@app.get("/portfolio")
+def get_portfolio(token: str = Query("")):
+    if ADMIN_TOKEN and token != ADMIN_TOKEN:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    return get_portfolio_snapshot()
 
 
 @app.get("/test-push")
